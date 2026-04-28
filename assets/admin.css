@@ -1,0 +1,118 @@
+.update-doctor-wrap {
+	max-width: 1100px;
+}
+
+.update-doctor-intro {
+	font-size: 14px;
+	max-width: 800px;
+}
+
+.update-doctor-actions {
+	margin: 16px 0 24px;
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.update-doctor-overall p {
+	margin: 0;
+	padding: 12px 14px;
+	font-weight: 600;
+}
+
+.update-doctor-section {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	padding: 16px 20px;
+	margin: 16px 0;
+}
+
+.update-doctor-section h2 {
+	margin-top: 0;
+}
+
+.update-doctor-diagnostics {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.update-doctor-diagnostic {
+	border-top: 1px solid #f0f0f1;
+	padding: 12px 0;
+}
+
+.update-doctor-diagnostic:first-child {
+	border-top: none;
+}
+
+.update-doctor-status-pill {
+	display: inline-block;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	padding: 2px 8px;
+	border-radius: 999px;
+	margin-right: 8px;
+	vertical-align: middle;
+}
+
+.update-doctor-status-pill--pass {
+	background: #d1e7dd;
+	color: #0f5132;
+}
+
+.update-doctor-status-pill--warn {
+	background: #fff3cd;
+	color: #664d03;
+}
+
+.update-doctor-status-pill--fail {
+	background: #f8d7da;
+	color: #842029;
+}
+
+.update-doctor-status-pill--info {
+	background: #cfe2ff;
+	color: #084298;
+}
+
+.update-doctor-diagnostic-title {
+	font-family: Menlo, Monaco, Consolas, monospace;
+	font-size: 13px;
+}
+
+.update-doctor-diagnostic-message {
+	margin: 6px 0 6px 0;
+	color: #50575e;
+}
+
+.update-doctor-diagnostic-details {
+	margin: 4px 0 0 0;
+	padding-left: 18px;
+	font-family: Menlo, Monaco, Consolas, monospace;
+	font-size: 12px;
+	color: #1d2327;
+}
+
+.update-doctor-diagnostic-details li {
+	margin: 2px 0;
+}
+
+.update-doctor-pre {
+	background: #f6f7f7;
+	border: 1px solid #dcdcde;
+	padding: 10px;
+	overflow: auto;
+	max-height: 240px;
+}
+
+.update-doctor-raw-report {
+	margin-top: 24px;
+}
+
+.update-doctor-last-run {
+	padding: 12px 16px;
+}
