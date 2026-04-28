@@ -4,7 +4,7 @@ Tags: updates, automatic updates, diagnostics, troubleshooting, maintenance
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 0.1.0
+Stable tag: 1.0.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,5 +65,10 @@ WordPress core has sent auto-update result emails since 5.5. Update Doctor's ema
 
 == Changelog ==
 
-= 0.1.0 =
-* Initial release.
+= 1.0.0 =
+* Initial public release.
+* Eight diagnostic checks across Constants, Filters and Hooks, Cron, Filesystem, Options and Transients, Per-Plugin/Theme decisions, String Scanner, and Error Log.
+* Hook inspector resolves each filter callback to its source file and line number.
+* "Run Background Update Now" button triggers `wp_maybe_auto_update()` on demand with output and error capture.
+* Markdown report exporter for sharing diagnostics with hosts or support teams.
+* Opt-in failure notification email (disabled by default, capped at one email per 24 hours).
