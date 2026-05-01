@@ -72,25 +72,30 @@ class Update_Doctor_Admin_Page {
 			</p>
 
 			<?php $this->render_overall_banner( $overall ); ?>
+			<?php $this->render_live_test_banner( $last_run_payload ); ?>
 
 			<div class="update-doctor-actions">
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline">
 					<input type="hidden" name="action" value="<?php echo esc_attr( Update_Doctor_Update_Trigger::ACTION ); ?>" />
 					<?php wp_nonce_field( Update_Doctor_Update_Trigger::ACTION, Update_Doctor_Update_Trigger::NONCE ); ?>
-					<button type="submit" class="button button-primary">
-						<?php esc_html_e( 'Run Background Update Now', 'update-doctor' ); ?>
+					<button type="submit" class="button button-primary button-hero">
+						<?php esc_html_e( 'Run Live Update Test', 'update-doctor' ); ?>
 					</button>
 				</form>
+
+				<a href="<?php echo esc_url( admin_url( 'tools.php?page=' . self::SLUG ) ); ?>" class="button">
+					<?php esc_html_e( 'Re-run Diagnostics', 'update-doctor' ); ?>
+				</a>
 
 				<button type="button" class="button" id="update-doctor-copy-report"
 					data-report="<?php echo esc_attr( $report ); ?>">
 					<?php esc_html_e( 'Copy Markdown Report', 'update-doctor' ); ?>
 				</button>
-
-				<a href="<?php echo esc_url( admin_url( 'tools.php?page=' . self::SLUG ) ); ?>" class="button">
-					<?php esc_html_e( 'Re-run Diagnostics', 'update-doctor' ); ?>
-				</a>
 			</div>
+
+			<p class="update-doctor-actions-help description">
+				<?php esc_html_e( '"Run Live Update Test" calls WordPress\'s automatic-update process directly, applies any pending updates, and captures the output (including PHP errors) into the diagnostic. This is the most reliable way to determine whether updates can actually run on this site.', 'update-doctor' ); ?>
+			</p>
 
 			<?php if ( ! empty( $_GET['doctor_run'] ) && $last_run_payload ) : ?>
 				<?php $this->render_last_run( $last_run_payload ); ?>
@@ -113,6 +118,64 @@ class Update_Doctor_Admin_Page {
 			</details>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Show an actionable banner at the top of the page when pending updates exist but
+	 * no recent live test has been captured. The Last Run check also surfaces this in
+	 * the body, but the banner makes it impossible to miss.
+	 */
+	private function render_live_test_banner( $last_run_payload ) {
+		$pending = $this->pending_count();
+		if ( $pending === 0 ) {
+			return;
+		}
+
+		$has_recent_run = is_array( $last_run_payload ) && ! empty( $last_run_payload['time'] ) && ( time() - (int) $last_run_payload['time'] < HOUR_IN_SECONDS );
+		if ( $has_recent_run ) {
+			return;
+		}
+
+		?>
+		<div class="notice notice-info update-doctor-live-test-banner">
+			<p>
+				<strong><?php esc_html_e( 'For the most complete diagnosis: run a live update test.', 'update-doctor' ); ?></strong>
+				<?php
+				printf(
+					/* translators: %d: number of pending updates */
+					esc_html( _n(
+						'%d update is pending on this site, and Update Doctor has no record of a recent live update attempt. Click "Run Live Update Test" above to invoke WordPress\'s update process and capture exactly what happens — output, errors, and result for each item.',
+						'%d updates are pending on this site, and Update Doctor has no record of a recent live update attempt. Click "Run Live Update Test" above to invoke WordPress\'s update process and capture exactly what happens — output, errors, and result for each item.',
+						$pending,
+						'update-doctor'
+					) ),
+					$pending
+				);
+				?>
+			</p>
+		</div>
+		<?php
+	}
+
+	private function pending_count() {
+		$count = 0;
+		$pt = get_site_transient( 'update_plugins' );
+		if ( $pt && isset( $pt->response ) && is_array( $pt->response ) ) {
+			$count += count( $pt->response );
+		}
+		$tt = get_site_transient( 'update_themes' );
+		if ( $tt && isset( $tt->response ) && is_array( $tt->response ) ) {
+			$count += count( $tt->response );
+		}
+		$ct = get_site_transient( 'update_core' );
+		if ( $ct && isset( $ct->updates ) && is_array( $ct->updates ) ) {
+			foreach ( $ct->updates as $update ) {
+				if ( isset( $update->response ) && in_array( $update->response, array( 'upgrade', 'autoupdate' ), true ) ) {
+					$count++;
+				}
+			}
+		}
+		return $count;
 	}
 
 	private function render_overall_banner( $status ) {

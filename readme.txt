@@ -4,7 +4,7 @@ Tags: updates, automatic updates, diagnostics, troubleshooting, maintenance
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.0.2
+Stable tag: 1.1.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,14 @@ Email notifications add a side-effect that some site owners may not want (for ex
 WordPress core has sent auto-update result emails since 5.5. Update Doctor's email is additive: it covers silent skips (which core does not email about) and gives you a uniform "open the diagnostic page" call to action. You may receive both emails if you enable Update Doctor's notifications.
 
 == Changelog ==
+
+= 1.1.0 =
+* New: **Upgrader Hooks check.** Inspects callbacks on the WP_Upgrader hooks (`upgrader_pre_install`, `upgrader_pre_download`, `upgrader_source_selection`, `upgrader_install_package_result`, `upgrader_post_install`, `upgrader_clear_destination`, `upgrader_process_complete`, `automatic_updates_complete`). These can silently abort or modify an update mid-process even when the auto-update decision layer has cleared the update to run.
+* New: **Last Update Attempt check.** Surfaces results from the most recent update run — manual or automatic — including any PHP fatal errors captured during the attempt. Fatal errors are hoisted to a top-level FAIL so they appear prominently. Also tells the user to run a live update test when pending updates exist with no recent run captured.
+* New: **PHP error log tailing.** The Error Log check now also tails the PHP global error log (from `ini_get('error_log')`) in addition to WP_DEBUG_LOG, since fatal errors during updates often land in the PHP log on managed hosts. Fatal/parse errors are surfaced as FAIL even if they aren't directly tagged as update-related — they can still abort an update silently.
+* New: **Live update test banner.** When pending updates exist and no recent live test is captured, a banner at the top of the page makes the next step obvious.
+* Change: "Run Background Update Now" renamed to "Run Live Update Test" — clearer about what the action does. The button is now larger and placed first in the action bar.
+* Change: Last-run results now persist for a week (was 30 minutes) so they remain visible across diagnostic sessions.
 
 = 1.0.2 =
 * Fix: per-item check now distinguishes between updates that will actually run and updates that are gated by a missing license or subscription. Premium plugins distributed through systems like WooCommerce.com Update Manager, Freemius, or EDD Software Licensing leave a version entry in the update transient but no package download URL when the site has no active subscription. v1.0.1 reported these as "would auto-update on next cron run," which is misleading. v1.0.2 inspects the package URL and reports them as license-gated, with a section-level summary noting how many were detected.

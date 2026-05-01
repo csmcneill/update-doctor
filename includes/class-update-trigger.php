@@ -78,12 +78,13 @@ class Update_Doctor_Update_Trigger {
 		// keeps the URL short and avoids leaking details into the address bar.
 		$payload = array(
 			'time'    => time(),
+			'kind'    => 'manual',
 			'output'  => $output,
 			'results' => $results_buffer,
 			'errors'  => $captured_errors,
 		);
 
-		set_transient( 'update_doctor_last_run', $payload, MINUTE_IN_SECONDS * 30 );
+		set_transient( 'update_doctor_last_run', $payload, WEEK_IN_SECONDS );
 
 		$redirect = add_query_arg(
 			array(

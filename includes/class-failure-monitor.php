@@ -100,6 +100,17 @@ class Update_Doctor_Failure_Monitor {
 			return;
 		}
 
+		// Capture the run results into the same transient the Last Run check reads,
+		// so automatic runs are visible in the diagnostic alongside manual ones.
+		$payload = array(
+			'time'    => time(),
+			'kind'    => 'auto',
+			'output'  => '',
+			'results' => $results,
+			'errors'  => array(),
+		);
+		set_transient( 'update_doctor_last_run', $payload, WEEK_IN_SECONDS );
+
 		$failures = $this->extract_failures( $results );
 		$expected = $this->load_expected();
 
