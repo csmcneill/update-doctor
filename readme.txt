@@ -4,7 +4,7 @@ Tags: updates, automatic updates, diagnostics, troubleshooting, maintenance
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.0.1
+Stable tag: 1.0.2
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,9 @@ Email notifications add a side-effect that some site owners may not want (for ex
 WordPress core has sent auto-update result emails since 5.5. Update Doctor's email is additive: it covers silent skips (which core does not email about) and gives you a uniform "open the diagnostic page" call to action. You may receive both emails if you enable Update Doctor's notifications.
 
 == Changelog ==
+
+= 1.0.2 =
+* Fix: per-item check now distinguishes between updates that will actually run and updates that are gated by a missing license or subscription. Premium plugins distributed through systems like WooCommerce.com Update Manager, Freemius, or EDD Software Licensing leave a version entry in the update transient but no package download URL when the site has no active subscription. v1.0.1 reported these as "would auto-update on next cron run," which is misleading. v1.0.2 inspects the package URL and reports them as license-gated, with a section-level summary noting how many were detected.
 
 = 1.0.1 =
 * Fix: `wp_maybe_auto_update` is no longer reported as a critical issue when it isn't scheduled. WordPress only schedules this event on demand (when an update-check finds new versions); its absence is normal on a fully up-to-date site or when the host runs auto-updates outside of WP-Cron. The check now reads `update_plugins`, `update_themes`, and `update_core` transients to decide whether the absence is meaningful.
