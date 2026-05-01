@@ -3,7 +3,7 @@
  * Plugin Name: Update Doctor
  * Plugin URI: https://github.com/csmcneill/update-doctor
  * Description: Diagnoses why WordPress automatic updates aren't running. Inspects constants, filter callbacks, cron, filesystem, options, and per-item state, and produces a plain-language report you can hand to your host's support.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Requires at least: 5.5
  * Requires PHP: 7.4
  * Author: Chris McNeill
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'UPDATE_DOCTOR_VERSION', '1.0.0' );
+define( 'UPDATE_DOCTOR_VERSION', '1.0.1' );
 define( 'UPDATE_DOCTOR_FILE', __FILE__ );
 define( 'UPDATE_DOCTOR_DIR', plugin_dir_path( __FILE__ ) );
 define( 'UPDATE_DOCTOR_URL', plugin_dir_url( __FILE__ ) );
@@ -26,6 +26,7 @@ define( 'UPDATE_DOCTOR_URL', plugin_dir_url( __FILE__ ) );
 require_once UPDATE_DOCTOR_DIR . 'includes/class-diagnostic.php';
 require_once UPDATE_DOCTOR_DIR . 'includes/class-check.php';
 require_once UPDATE_DOCTOR_DIR . 'includes/class-hook-inspector.php';
+require_once UPDATE_DOCTOR_DIR . 'includes/class-host-detector.php';
 require_once UPDATE_DOCTOR_DIR . 'includes/class-runner.php';
 require_once UPDATE_DOCTOR_DIR . 'includes/class-admin-page.php';
 require_once UPDATE_DOCTOR_DIR . 'includes/class-update-trigger.php';

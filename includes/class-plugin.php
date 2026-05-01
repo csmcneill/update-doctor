@@ -20,6 +20,9 @@ class Update_Doctor_Plugin {
 	/** @var Update_Doctor_Hook_Inspector */
 	public $hook_inspector;
 
+	/** @var Update_Doctor_Host_Detector */
+	public $host_detector;
+
 	/** @var Update_Doctor_Update_Trigger */
 	public $update_trigger;
 
@@ -44,6 +47,7 @@ class Update_Doctor_Plugin {
 
 	private function __construct() {
 		$this->hook_inspector   = new Update_Doctor_Hook_Inspector();
+		$this->host_detector    = new Update_Doctor_Host_Detector();
 		$this->runner           = new Update_Doctor_Runner();
 		$this->update_trigger   = new Update_Doctor_Update_Trigger();
 		$this->report_formatter = new Update_Doctor_Report_Formatter();
@@ -68,7 +72,7 @@ class Update_Doctor_Plugin {
 	private function register_checks() {
 		$this->runner->register( new Update_Doctor_Constants_Check() );
 		$this->runner->register( new Update_Doctor_Filters_Check( $this->hook_inspector ) );
-		$this->runner->register( new Update_Doctor_Cron_Check() );
+		$this->runner->register( new Update_Doctor_Cron_Check( $this->host_detector ) );
 		$this->runner->register( new Update_Doctor_Filesystem_Check() );
 		$this->runner->register( new Update_Doctor_Options_Check() );
 		$this->runner->register( new Update_Doctor_Per_Item_Check() );
