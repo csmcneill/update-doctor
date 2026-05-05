@@ -81,6 +81,33 @@ class Update_Doctor_Filesystem_Check extends Update_Doctor_Check {
 			);
 		}
 
+		// .maintenance file at ABSPATH — a stuck maintenance flag silently disables auto-updates.
+		$maintenance_file = ABSPATH . '.maintenance';
+		if ( file_exists( $maintenance_file ) ) {
+			$age = function_exists( 'wp_is_maintenance_mode' ) && wp_is_maintenance_mode()
+				? __( 'currently treated as active by WordPress', 'update-doctor' )
+				: __( 'present but stale (older than 10 minutes)', 'update-doctor' );
+
+			$status = ( function_exists( 'wp_is_maintenance_mode' ) && wp_is_maintenance_mode() )
+				? Update_Doctor_Diagnostic::STATUS_FAIL
+				: Update_Doctor_Diagnostic::STATUS_WARN;
+
+			$results[] = new Update_Doctor_Diagnostic(
+				$status,
+				__( '.maintenance file', 'update-doctor' ),
+				sprintf(
+					__( 'Found %s — %s. WP_Automatic_Updater::is_disabled() returns true while maintenance mode is active, which silently blocks auto-updates. If maintenance mode is not actually in progress, delete this file.', 'update-doctor' ),
+					$maintenance_file,
+					$age
+				)
+			);
+		} else {
+			$results[] = Update_Doctor_Diagnostic::pass(
+				__( '.maintenance file', 'update-doctor' ),
+				__( 'Not present — maintenance mode is not currently active.', 'update-doctor' )
+			);
+		}
+
 		// WP_Filesystem method.
 		if ( ! function_exists( 'WP_Filesystem' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/file.php';

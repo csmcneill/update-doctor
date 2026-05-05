@@ -63,8 +63,10 @@ class Update_Doctor_Last_Run_Check extends Update_Doctor_Check {
 		}
 
 		// Summary of what the upgrader returned.
-		$summary = $this->summarise_results( $run_data );
-		$has_failures = ! empty( $summary['failures'] );
+		$summary       = $this->summarise_results( $run_data );
+		$has_failures  = ! empty( $summary['failures'] );
+		$breadcrumbs   = isset( $payload['breadcrumbs'] ) && is_array( $payload['breadcrumbs'] ) ? $payload['breadcrumbs'] : array();
+		$pending_before = isset( $payload['pending_before'] ) && is_array( $payload['pending_before'] ) ? $payload['pending_before'] : null;
 
 		if ( $has_failures ) {
 			$results[] = Update_Doctor_Diagnostic::warn(
@@ -86,11 +88,13 @@ class Update_Doctor_Last_Run_Check extends Update_Doctor_Check {
 				array_merge( $header_details, $summary['successes'] )
 			);
 		} elseif ( empty( $fatals ) ) {
-			$results[] = Update_Doctor_Diagnostic::info(
-				__( 'Updater ran with nothing to do', 'update-doctor' ),
-				__( 'The most recent run completed without applying any updates. This is normal when no auto-update-eligible plugins or themes have pending releases.', 'update-doctor' ),
-				$header_details
-			);
+			$results[] = $this->diagnose_zero_attempts( $breadcrumbs, $pending_before, $header_details );
+		}
+
+		// Always surface the lifecycle breadcrumbs after the headline diagnostic so
+		// the user can see exactly which hooks fired during the run.
+		if ( ! empty( $breadcrumbs ) ) {
+			$results[] = $this->breadcrumbs_diagnostic( $breadcrumbs );
 		}
 
 		// Non-fatal warnings/notices captured.
@@ -113,6 +117,127 @@ class Update_Doctor_Last_Run_Check extends Update_Doctor_Check {
 		}
 
 		return $results;
+	}
+
+	/**
+	 * Distinguish between "run() never started," "ran but should_update returned
+	 * false for everything," and "ran, called the upgrader, but the upgrader
+	 * aborted before completing." The lifecycle breadcrumbs make this knowable.
+	 */
+	private function diagnose_zero_attempts( array $breadcrumbs, $pending_before, array $header_details ) {
+		$pending_count = $pending_before ? ( (int) $pending_before['plugins'] + (int) $pending_before['themes'] + ( ! empty( $pending_before['core'] ) ? 1 : 0 ) ) : 0;
+
+		// If no updates were pending, "nothing to do" is the right answer.
+		if ( $pending_count === 0 ) {
+			return Update_Doctor_Diagnostic::info(
+				__( 'Updater ran with nothing to do', 'update-doctor' ),
+				__( 'The most recent run completed without applying any updates, and there were no pending updates to attempt. This is the normal state for a fully up-to-date site.', 'update-doctor' ),
+				$header_details
+			);
+		}
+
+		// Did is_disabled() get called? It's called at the very top of run(), so
+		// if we never saw the filter fire, run() probably exited even earlier
+		// (or the filter wasn't reached because is_disabled returned true based
+		// on a constant rather than the filter chain).
+		$disabled_calls = isset( $breadcrumbs['is_disabled_filter_calls'] ) ? (int) $breadcrumbs['is_disabled_filter_calls'] : 0;
+		$pre_auto       = isset( $breadcrumbs['pre_auto_update'] ) && is_array( $breadcrumbs['pre_auto_update'] ) ? $breadcrumbs['pre_auto_update'] : array();
+		$pre_install    = isset( $breadcrumbs['upgrader_pre_install'] ) && is_array( $breadcrumbs['upgrader_pre_install'] ) ? $breadcrumbs['upgrader_pre_install'] : array();
+
+		$details = array_merge( $header_details, array(
+			sprintf( __( 'pending updates at trigger time: %d', 'update-doctor' ), $pending_count ),
+			sprintf( __( 'automatic_updater_disabled filter called: %d times', 'update-doctor' ), $disabled_calls ),
+			sprintf( __( 'pre_auto_update fired: %d times', 'update-doctor' ), count( $pre_auto ) ),
+			sprintf( __( 'upgrader_pre_install fired: %d times', 'update-doctor' ), count( $pre_install ) ),
+		) );
+
+		// Three possible signatures:
+		// (a) is_disabled filter never called → run() didn't reach is_disabled, suggesting an even earlier exit (rare; could be require_once failure).
+		// (b) is_disabled filter called but pre_auto_update never fired → run() exited between is_disabled and the iteration loop. Most likely is_main_network/is_main_site or lock acquisition.
+		// (c) pre_auto_update fired but upgrader_pre_install never fired → should_update returned false at runtime. The auto_update_$type filters are returning differently in run() context than in our per-item check.
+		// (d) upgrader_pre_install fired but no items in results → upgrader_pre_install or upgrader_pre_download returned WP_Error, aborting the install. The errors arrays in breadcrumbs would show this.
+		if ( 0 === $disabled_calls ) {
+			return Update_Doctor_Diagnostic::fail(
+				__( 'Updater never reached is_disabled() check', 'update-doctor' ),
+				sprintf(
+					__( '%d updates were pending, but Update Doctor did not observe WP_Automatic_Updater::is_disabled() being called during the run. This is unusual and suggests an earlier exit from wp_maybe_auto_update() — possibly a require_once failure or a custom override of the function.', 'update-doctor' ),
+					$pending_count
+				),
+				$details
+			);
+		}
+
+		if ( empty( $pre_auto ) ) {
+			return Update_Doctor_Diagnostic::fail(
+				__( 'Updater ran but never iterated pending items', 'update-doctor' ),
+				sprintf(
+					__( '%d updates were pending and is_disabled() was reached, but the per-item iteration never began. The most likely causes are: (a) WP_Upgrader::create_lock() failed (a stale auto_updater.lock option, or another process holding the lock), (b) is_main_network() or is_main_site() returned false on a multisite install, or (c) the update_plugins / update_themes transient was empty at the moment the updater read it.', 'update-doctor' ),
+					$pending_count
+				),
+				$details
+			);
+		}
+
+		if ( empty( $pre_install ) ) {
+			return Update_Doctor_Diagnostic::fail(
+				__( 'Updater iterated items but should_update returned false at runtime', 'update-doctor' ),
+				sprintf(
+					__( 'WordPress reached %d items during the iteration but the upgrader was never invoked for any of them. This means WP_Automatic_Updater::should_update() returned false at runtime — different from what Update Doctor\'s Per-Item check observed. Check the auto_update_plugin and auto_update_theme filter callbacks listed in the Filters and Hooks section above; one of them is likely behaving differently inside run() than in admin context (for example, checking is_admin() or the current_user_can() result).', 'update-doctor' ),
+					count( $pre_auto )
+				),
+				array_merge( $details, array_map( function ( $item ) {
+					return 'iterated: ' . $item['type'] . ' ' . $item['name'];
+				}, $pre_auto ) )
+			);
+		}
+
+		// We have pre_install fires but no completion entries → the upgrader started but aborted.
+		$pre_install_errors = isset( $breadcrumbs['upgrader_pre_install_errors'] ) && is_array( $breadcrumbs['upgrader_pre_install_errors'] ) ? $breadcrumbs['upgrader_pre_install_errors'] : array();
+		$pre_download_errors = isset( $breadcrumbs['upgrader_pre_download_errors'] ) && is_array( $breadcrumbs['upgrader_pre_download_errors'] ) ? $breadcrumbs['upgrader_pre_download_errors'] : array();
+		$abort_lines = array_merge( $pre_install_errors, $pre_download_errors );
+
+		return Update_Doctor_Diagnostic::fail(
+			__( 'Upgrader started but did not complete', 'update-doctor' ),
+			sprintf(
+				__( 'WP_Automatic_Updater began upgrading %d item(s) but no entries appeared in the completion results. Inspect the abortable upgrader hooks in the Upgrader Hooks section — Ithemes_Updater_Admin->filter_upgrader_pre_install, WC_Helper_Updater::block_expired_updates, or one of the plugin-update-checker library callbacks may be returning a WP_Error.', 'update-doctor' ),
+				count( $pre_install )
+			),
+			empty( $abort_lines ) ? $details : array_merge( $details, array( 'abort sources:' ), $abort_lines )
+		);
+	}
+
+	private function breadcrumbs_diagnostic( array $breadcrumbs ) {
+		$lines = array();
+		$lines[] = sprintf( 'automatic_updater_disabled filter calls: %d (last result: %s)',
+			(int) ( $breadcrumbs['is_disabled_filter_calls'] ?? 0 ),
+			isset( $breadcrumbs['is_disabled_filter_last'] ) ? var_export( $breadcrumbs['is_disabled_filter_last'], true ) : 'n/a'
+		);
+		$lines[] = sprintf( 'pre_auto_update fires: %d', count( (array) ( $breadcrumbs['pre_auto_update'] ?? array() ) ) );
+		$lines[] = sprintf( 'upgrader_pre_install fires: %d', count( (array) ( $breadcrumbs['upgrader_pre_install'] ?? array() ) ) );
+		$lines[] = sprintf( 'upgrader_pre_download fires: %d', count( (array) ( $breadcrumbs['upgrader_pre_download'] ?? array() ) ) );
+		$lines[] = sprintf( 'upgrader_post_install fires: %d', count( (array) ( $breadcrumbs['upgrader_post_install'] ?? array() ) ) );
+
+		$pre_install_errors = (array) ( $breadcrumbs['upgrader_pre_install_errors'] ?? array() );
+		if ( ! empty( $pre_install_errors ) ) {
+			$lines[] = '— upgrader_pre_install returned WP_Error for:';
+			foreach ( $pre_install_errors as $err ) {
+				$lines[] = '   • ' . $err;
+			}
+		}
+
+		$pre_download_errors = (array) ( $breadcrumbs['upgrader_pre_download_errors'] ?? array() );
+		if ( ! empty( $pre_download_errors ) ) {
+			$lines[] = '— upgrader_pre_download returned WP_Error for:';
+			foreach ( $pre_download_errors as $err ) {
+				$lines[] = '   • ' . $err;
+			}
+		}
+
+		return Update_Doctor_Diagnostic::info(
+			__( 'Lifecycle breadcrumbs', 'update-doctor' ),
+			__( "Each hook fired during WordPress's auto-update process is counted below. These breadcrumbs are how Update Doctor reasons about exactly where the run got to before stopping.", 'update-doctor' ),
+			$lines
+		);
 	}
 
 	private function no_run_yet() {
