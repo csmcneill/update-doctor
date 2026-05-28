@@ -144,18 +144,36 @@ class Update_Doctor_Last_Run_Check extends Update_Doctor_Check {
 		$pre_auto       = isset( $breadcrumbs['pre_auto_update'] ) && is_array( $breadcrumbs['pre_auto_update'] ) ? $breadcrumbs['pre_auto_update'] : array();
 		$pre_install    = isset( $breadcrumbs['upgrader_pre_install'] ) && is_array( $breadcrumbs['upgrader_pre_install'] ) ? $breadcrumbs['upgrader_pre_install'] : array();
 
+		// Filter-level invocations (one per item iterated by run(), regardless of should_update outcome).
+		$plugin_filter_invocations = isset( $breadcrumbs['auto_update_plugin_invocations'] ) && is_array( $breadcrumbs['auto_update_plugin_invocations'] ) ? $breadcrumbs['auto_update_plugin_invocations'] : array();
+		$theme_filter_invocations  = isset( $breadcrumbs['auto_update_theme_invocations'] ) && is_array( $breadcrumbs['auto_update_theme_invocations'] ) ? $breadcrumbs['auto_update_theme_invocations'] : array();
+		$core_filter_invocations   = isset( $breadcrumbs['auto_update_core_invocations'] ) && is_array( $breadcrumbs['auto_update_core_invocations'] ) ? $breadcrumbs['auto_update_core_invocations'] : array();
+		$filter_invocation_total   = count( $plugin_filter_invocations ) + count( $theme_filter_invocations ) + count( $core_filter_invocations );
+
+		$is_multisite    = ! empty( $breadcrumbs['is_multisite'] );
+		$is_main_network = isset( $breadcrumbs['is_main_network'] ) ? (bool) $breadcrumbs['is_main_network'] : true;
+		$is_main_site    = isset( $breadcrumbs['is_main_site'] ) ? (bool) $breadcrumbs['is_main_site'] : true;
+
 		$details = array_merge( $header_details, array(
 			sprintf( __( 'pending updates at trigger time: %d', 'update-doctor' ), $pending_count ),
 			sprintf( __( 'automatic_updater_disabled filter called: %d times', 'update-doctor' ), $disabled_calls ),
+			sprintf( __( 'auto_update_$type filter invocations (one per iterated item): %d', 'update-doctor' ), $filter_invocation_total ),
 			sprintf( __( 'pre_auto_update fired: %d times', 'update-doctor' ), count( $pre_auto ) ),
 			sprintf( __( 'upgrader_pre_install fired: %d times', 'update-doctor' ), count( $pre_install ) ),
 		) );
 
-		// Three possible signatures:
-		// (a) is_disabled filter never called → run() didn't reach is_disabled, suggesting an even earlier exit (rare; could be require_once failure).
-		// (b) is_disabled filter called but pre_auto_update never fired → run() exited between is_disabled and the iteration loop. Most likely is_main_network/is_main_site or lock acquisition.
-		// (c) pre_auto_update fired but upgrader_pre_install never fired → should_update returned false at runtime. The auto_update_$type filters are returning differently in run() context than in our per-item check.
-		// (d) upgrader_pre_install fired but no items in results → upgrader_pre_install or upgrader_pre_download returned WP_Error, aborting the install. The errors arrays in breadcrumbs would show this.
+		if ( $is_multisite ) {
+			$details[] = sprintf( __( 'is_main_network: %s', 'update-doctor' ), $is_main_network ? 'true' : 'false' );
+			$details[] = sprintf( __( 'is_main_site: %s', 'update-doctor' ), $is_main_site ? 'true' : 'false' );
+		}
+
+		// Five possible signatures, distinguished by the new filter-invocation counter:
+		// (a) is_disabled filter never called → run() didn't reach is_disabled.
+		// (b) is_disabled called but filter_invocation_total == 0 → run() exited between is_disabled and the iteration loop. Lock failure, multisite mismatch, or transient empty.
+		// (c) filter_invocation_total > 0 but pre_auto_update count == 0 → iteration ran, should_update returned false for every item.
+		// (d) pre_auto_update > 0 but pre_install == 0 → unusual; should_update cleared but upgrader bailed before pre_install (probably filesystem init).
+		// (e) pre_install > 0 but no results → upgrader started and aborted mid-process.
+
 		if ( 0 === $disabled_calls ) {
 			return Update_Doctor_Diagnostic::fail(
 				__( 'Updater never reached is_disabled() check', 'update-doctor' ),
@@ -167,26 +185,64 @@ class Update_Doctor_Last_Run_Check extends Update_Doctor_Check {
 			);
 		}
 
-		if ( empty( $pre_auto ) ) {
+		if ( 0 === $filter_invocation_total ) {
+			// Iteration loop never executed. Narrow down which of the three causes.
+			if ( $is_multisite && ( ! $is_main_network || ! $is_main_site ) ) {
+				return Update_Doctor_Diagnostic::fail(
+					__( 'Updater exited because of multisite context', 'update-doctor' ),
+					sprintf(
+						__( 'WP_Automatic_Updater::run() exits early when is_main_network() or is_main_site() returns false. Both must be true for the updater to proceed. On this site: is_main_network=%s, is_main_site=%s.', 'update-doctor' ),
+						$is_main_network ? 'true' : 'false',
+						$is_main_site ? 'true' : 'false'
+					),
+					$details
+				);
+			}
+
 			return Update_Doctor_Diagnostic::fail(
-				__( 'Updater ran but never iterated pending items', 'update-doctor' ),
+				__( 'Updater ran but never began per-item iteration', 'update-doctor' ),
 				sprintf(
-					__( '%d updates were pending and is_disabled() was reached, but the per-item iteration never began. The most likely causes are: (a) WP_Upgrader::create_lock() failed (a stale auto_updater.lock option, or another process holding the lock), (b) is_main_network() or is_main_site() returned false on a multisite install, or (c) the update_plugins / update_themes transient was empty at the moment the updater read it.', 'update-doctor' ),
+					__( '%d updates were pending and is_disabled() returned false, but the foreach loop over $plugins->response never executed (auto_update_$type filters were never called). The most likely cause is that the update_plugins / update_themes site transient was empty (no $value->response array, or response was an empty array) at the moment WP_Automatic_Updater::run() read it via get_site_transient(). A less likely cause is WP_Upgrader::create_lock() failing because of a stale lock or concurrent process. Worth inspecting: any pre_set_site_transient_update_plugins callback that may have stripped the response array.', 'update-doctor' ),
 					$pending_count
 				),
 				$details
 			);
 		}
 
-		if ( empty( $pre_install ) ) {
+		if ( empty( $pre_auto ) ) {
+			// Filter chain ran but should_update returned false for every item. This is the
+			// most informative case — we know exactly which items were considered and what the
+			// auto_update_$type filter chain decided for each.
+			$per_item_lines = array();
+			foreach ( $plugin_filter_invocations as $inv ) {
+				$per_item_lines[] = sprintf( 'plugin %s → auto_update_plugin returned %s', $inv['name'] ?: '?', $inv['value'] );
+			}
+			foreach ( $theme_filter_invocations as $inv ) {
+				$per_item_lines[] = sprintf( 'theme %s → auto_update_theme returned %s', $inv['name'] ?: '?', $inv['value'] );
+			}
+			foreach ( $core_filter_invocations as $inv ) {
+				$per_item_lines[] = sprintf( 'core → auto_update_core returned %s', $inv['value'] );
+			}
+
 			return Update_Doctor_Diagnostic::fail(
 				__( 'Updater iterated items but should_update returned false at runtime', 'update-doctor' ),
 				sprintf(
-					__( 'WordPress reached %d items during the iteration but the upgrader was never invoked for any of them. This means WP_Automatic_Updater::should_update() returned false at runtime — different from what Update Doctor\'s Per-Item check observed. Check the auto_update_plugin and auto_update_theme filter callbacks listed in the Filters and Hooks section above; one of them is likely behaving differently inside run() than in admin context (for example, checking is_admin() or the current_user_can() result).', 'update-doctor' ),
+					__( 'WordPress reached %d items during iteration but the upgrader was never invoked for any of them. The auto_update_$type filter chain returned false for every item — different from what the Per-Item check sees in admin context. The most likely cause is a filter callback that behaves differently when wp_doing_cron() or wp_doing_ajax() return different values, or one that inspects is_admin() / current_user_can(). The per-item filter results are listed below; check the source files of the callbacks listed in the Filters and Hooks section against those plugin slugs.', 'update-doctor' ),
+					$filter_invocation_total
+				),
+				array_merge( $details, array( '— per-item filter chain results:' ), array_map( static function ( $line ) { return '   ' . $line; }, $per_item_lines ) )
+			);
+		}
+
+		if ( empty( $pre_install ) ) {
+			return Update_Doctor_Diagnostic::fail(
+				__( 'Updater cleared should_update but upgrader bailed before installing', 'update-doctor' ),
+				sprintf(
+					__( '%d items passed should_update() and pre_auto_update fired for them, but upgrader_pre_install never fired. This is unusual; the most likely cause is a WP_Filesystem initialization failure inside Plugin_Upgrader::upgrade().', 'update-doctor' ),
 					count( $pre_auto )
 				),
 				array_merge( $details, array_map( function ( $item ) {
-					return 'iterated: ' . $item['type'] . ' ' . $item['name'];
+					return 'cleared: ' . $item['type'] . ' ' . $item['name'];
 				}, $pre_auto ) )
 			);
 		}
@@ -212,10 +268,19 @@ class Update_Doctor_Last_Run_Check extends Update_Doctor_Check {
 			(int) ( $breadcrumbs['is_disabled_filter_calls'] ?? 0 ),
 			isset( $breadcrumbs['is_disabled_filter_last'] ) ? var_export( $breadcrumbs['is_disabled_filter_last'], true ) : 'n/a'
 		);
+		$lines[] = sprintf( 'auto_update_plugin invocations: %d', count( (array) ( $breadcrumbs['auto_update_plugin_invocations'] ?? array() ) ) );
+		$lines[] = sprintf( 'auto_update_theme invocations: %d', count( (array) ( $breadcrumbs['auto_update_theme_invocations'] ?? array() ) ) );
+		$lines[] = sprintf( 'auto_update_core invocations: %d', count( (array) ( $breadcrumbs['auto_update_core_invocations'] ?? array() ) ) );
 		$lines[] = sprintf( 'pre_auto_update fires: %d', count( (array) ( $breadcrumbs['pre_auto_update'] ?? array() ) ) );
 		$lines[] = sprintf( 'upgrader_pre_install fires: %d', count( (array) ( $breadcrumbs['upgrader_pre_install'] ?? array() ) ) );
 		$lines[] = sprintf( 'upgrader_pre_download fires: %d', count( (array) ( $breadcrumbs['upgrader_pre_download'] ?? array() ) ) );
 		$lines[] = sprintf( 'upgrader_post_install fires: %d', count( (array) ( $breadcrumbs['upgrader_post_install'] ?? array() ) ) );
+		if ( ! empty( $breadcrumbs['is_multisite'] ) ) {
+			$lines[] = sprintf( 'is_main_network: %s, is_main_site: %s',
+				isset( $breadcrumbs['is_main_network'] ) ? var_export( (bool) $breadcrumbs['is_main_network'], true ) : 'n/a',
+				isset( $breadcrumbs['is_main_site'] ) ? var_export( (bool) $breadcrumbs['is_main_site'], true ) : 'n/a'
+			);
+		}
 
 		$pre_install_errors = (array) ( $breadcrumbs['upgrader_pre_install_errors'] ?? array() );
 		if ( ! empty( $pre_install_errors ) ) {

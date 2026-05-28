@@ -47,14 +47,20 @@ class Update_Doctor_Update_Trigger {
 		// "run() never started" from "ran-but-skipped-everything" from
 		// "ran-and-upgrader-aborted".
 		$breadcrumbs = array(
-			'is_disabled_filter_calls' => 0,
-			'is_disabled_filter_last'  => null,
-			'pre_auto_update'          => array(),
-			'upgrader_pre_install'     => array(),
-			'upgrader_pre_download'    => array(),
-			'upgrader_post_install'    => array(),
-			'upgrader_pre_install_errors' => array(),
-			'upgrader_pre_download_errors' => array(),
+			'is_disabled_filter_calls'      => 0,
+			'is_disabled_filter_last'       => null,
+			'auto_update_plugin_invocations' => array(),
+			'auto_update_theme_invocations'  => array(),
+			'auto_update_core_invocations'   => array(),
+			'pre_auto_update'               => array(),
+			'upgrader_pre_install'          => array(),
+			'upgrader_pre_download'         => array(),
+			'upgrader_post_install'         => array(),
+			'upgrader_pre_install_errors'   => array(),
+			'upgrader_pre_download_errors'  => array(),
+			'is_main_network'               => function_exists( 'is_main_network' ) ? is_main_network() : null,
+			'is_main_site'                  => function_exists( 'is_main_site' ) ? is_main_site() : null,
+			'is_multisite'                  => function_exists( 'is_multisite' ) ? is_multisite() : false,
 		);
 
 		add_filter(
@@ -66,6 +72,38 @@ class Update_Doctor_Update_Trigger {
 			},
 			PHP_INT_MAX
 		);
+
+		// auto_update_$type filters are called inside should_update() for each item
+		// iterated by run(). A counter here distinguishes "the iteration loop never
+		// executed" (count 0) from "the iteration ran but should_update returned
+		// false for every item" (count > 0 with pre_auto_update count 0). The
+		// captured value is the final consensus of all preceding callbacks, after
+		// any filter on the site has had its say.
+		foreach ( array( 'plugin', 'theme', 'core' ) as $kind ) {
+			$key = 'auto_update_' . $kind . '_invocations';
+			add_filter(
+				'auto_update_' . $kind,
+				static function ( $update, $item ) use ( &$breadcrumbs, $key, $kind ) {
+					$name = '';
+					if ( is_object( $item ) ) {
+						if ( 'plugin' === $kind && ! empty( $item->plugin ) ) {
+							$name = $item->plugin;
+						} elseif ( 'theme' === $kind && ! empty( $item->theme ) ) {
+							$name = $item->theme;
+						} elseif ( ! empty( $item->slug ) ) {
+							$name = $item->slug;
+						}
+					}
+					$breadcrumbs[ $key ][] = array(
+						'name'  => $name,
+						'value' => var_export( $update, true ),
+					);
+					return $update;
+				},
+				PHP_INT_MAX,
+				2
+			);
+		}
 
 		add_action(
 			'pre_auto_update',
