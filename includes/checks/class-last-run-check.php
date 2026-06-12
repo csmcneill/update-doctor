@@ -186,7 +186,8 @@ class Update_Doctor_Last_Run_Check extends Update_Doctor_Check {
 		}
 
 		if ( 0 === $filter_invocation_total ) {
-			// Iteration loop never executed. Narrow down which of the three causes.
+			// Iteration loop never executed. Narrow down which of the four causes
+			// using the new transient-read breadcrumbs and lock snapshots.
 			if ( $is_multisite && ( ! $is_main_network || ! $is_main_site ) ) {
 				return Update_Doctor_Diagnostic::fail(
 					__( 'Updater exited because of multisite context', 'update-doctor' ),
@@ -199,10 +200,86 @@ class Update_Doctor_Last_Run_Check extends Update_Doctor_Check {
 				);
 			}
 
+			$transient_reads     = isset( $breadcrumbs['transient_reads'] ) && is_array( $breadcrumbs['transient_reads'] ) ? $breadcrumbs['transient_reads'] : array();
+			$pre_transient_reads = isset( $breadcrumbs['pre_transient_reads'] ) && is_array( $breadcrumbs['pre_transient_reads'] ) ? $breadcrumbs['pre_transient_reads'] : array();
+			$snapshot            = isset( $breadcrumbs['pre_run_transient_snapshot'] ) && is_array( $breadcrumbs['pre_run_transient_snapshot'] ) ? $breadcrumbs['pre_run_transient_snapshot'] : null;
+			$pre_lock            = isset( $breadcrumbs['pre_run_lock_held'] ) ? (bool) $breadcrumbs['pre_run_lock_held'] : null;
+			$post_lock           = isset( $breadcrumbs['post_run_lock_held'] ) ? (bool) $breadcrumbs['post_run_lock_held'] : null;
+
+			// Case: lock was already held when we started.
+			if ( true === $pre_lock ) {
+				return Update_Doctor_Diagnostic::fail(
+					__( 'Updater exited because the auto_updater.lock was already held', 'update-doctor' ),
+					__( 'The auto_updater.lock option was set in the database immediately before this trigger called wp_maybe_auto_update(). WP_Upgrader::create_lock() would have returned false, causing run() to exit before reaching the iteration loop. The lock may be stale (held by a previous run that crashed before releasing) — if it persists for more than an hour, manually delete the auto_updater.lock option from wp_options.', 'update-doctor' ),
+					$details
+				);
+			}
+
+			// Case: our pre-run snapshot saw items, but run()'s read returned empty.
+			// This is the smoking gun for read-side transient interception.
+			if ( $snapshot && $snapshot['plugins_response_count'] > 0 ) {
+				$run_saw_items = false;
+				foreach ( $transient_reads as $read ) {
+					if ( $read['transient'] === 'update_plugins' && $read['response_count'] > 0 ) {
+						$run_saw_items = true;
+						break;
+					}
+				}
+
+				if ( ! $run_saw_items ) {
+					$reads_lines = array();
+					foreach ( $transient_reads as $read ) {
+						$reads_lines[] = sprintf( 'site_transient_%s: response_count=%d, has_response=%s',
+							$read['transient'],
+							$read['response_count'],
+							$read['has_response'] ? 'true' : 'false'
+						);
+					}
+					$pre_reads_lines = array();
+					foreach ( $pre_transient_reads as $read ) {
+						$pre_reads_lines[] = sprintf( 'pre_site_transient_%s: short_circuited=%s',
+							$read['transient'],
+							$read['short_circuited'] ? 'true' : 'false'
+						);
+					}
+
+					return Update_Doctor_Diagnostic::fail(
+						__( 'Transient read interception detected', 'update-doctor' ),
+						sprintf(
+							__( 'Smoking gun: Update Doctor read update_plugins immediately before invoking the updater and observed %d pending items. During run(), the site_transient_update_plugins read filter chain returned a stripped value with 0 items — so run()\'s foreach loop never executed. A callback on site_transient_update_plugins or pre_site_transient_update_plugins is rewriting the response when the transient is read in this context. Inspect the callbacks listed in the Filters and Hooks section for those filters; one of them is the culprit. This is consistent with a managed-host mu-plugin that adjusts visibility of pending updates based on request context (web-admin vs cron/CLI).', 'update-doctor' ),
+							$snapshot['plugins_response_count']
+						),
+						array_merge( $details, array(
+							sprintf( 'pre-run transient snapshot: plugins=%d items, themes=%d items, core=%s', $snapshot['plugins_response_count'], $snapshot['themes_response_count'], $snapshot['core_has_response'] ? 'pending' : 'none' ),
+							'— site_transient_$type reads during run():',
+						), array_map( static function ( $line ) { return '   ' . $line; }, $reads_lines ), array( '— pre_site_transient_$type reads during run():' ), array_map( static function ( $line ) { return '   ' . $line; }, $pre_reads_lines ) )
+					);
+				}
+			}
+
+			// Case: our snapshot also saw an empty transient. Genuine empty state.
+			if ( $snapshot && 0 === $snapshot['plugins_response_count'] && 0 === $snapshot['themes_response_count'] ) {
+				return Update_Doctor_Diagnostic::warn(
+					__( 'Updater read the transient and found it empty', 'update-doctor' ),
+					__( 'The update_plugins and update_themes transients did not contain any pending items at the moment the updater read them. This is consistent with the transient being mid-refresh or having been cleared by another process. Click "Refresh Updates" from Dashboard → Updates and re-run the live test.', 'update-doctor' ),
+					$details
+				);
+			}
+
+			// Case: post-run lock held while pre-run was empty — race / weird state.
+			if ( true === $post_lock && false === $pre_lock ) {
+				return Update_Doctor_Diagnostic::warn(
+					__( 'auto_updater.lock was set during the run and not released', 'update-doctor' ),
+					__( 'The lock was acquired by run() but not released. This usually indicates an exception during the iteration loop. If the lock persists beyond an hour, it will block all subsequent auto-update runs until manually cleared.', 'update-doctor' ),
+					$details
+				);
+			}
+
+			// Fallback: lock not held, snapshot inconclusive, no clear signature.
 			return Update_Doctor_Diagnostic::fail(
 				__( 'Updater ran but never began per-item iteration', 'update-doctor' ),
 				sprintf(
-					__( '%d updates were pending and is_disabled() returned false, but the foreach loop over $plugins->response never executed (auto_update_$type filters were never called). The most likely cause is that the update_plugins / update_themes site transient was empty (no $value->response array, or response was an empty array) at the moment WP_Automatic_Updater::run() read it via get_site_transient(). A less likely cause is WP_Upgrader::create_lock() failing because of a stale lock or concurrent process. Worth inspecting: any pre_set_site_transient_update_plugins callback that may have stripped the response array.', 'update-doctor' ),
+					__( '%d updates were pending and is_disabled() returned false, but the foreach loop over $plugins->response never executed. The read-side breadcrumbs above show what each transient filter returned during run(). If site_transient_update_plugins shows response_count=0, the read filter chain is the cause; investigate the callbacks listed in the Filters and Hooks section for that filter.', 'update-doctor' ),
 					$pending_count
 				),
 				$details
@@ -280,6 +357,41 @@ class Update_Doctor_Last_Run_Check extends Update_Doctor_Check {
 				isset( $breadcrumbs['is_main_network'] ) ? var_export( (bool) $breadcrumbs['is_main_network'], true ) : 'n/a',
 				isset( $breadcrumbs['is_main_site'] ) ? var_export( (bool) $breadcrumbs['is_main_site'], true ) : 'n/a'
 			);
+		}
+
+		$snapshot = isset( $breadcrumbs['pre_run_transient_snapshot'] ) && is_array( $breadcrumbs['pre_run_transient_snapshot'] ) ? $breadcrumbs['pre_run_transient_snapshot'] : null;
+		if ( $snapshot ) {
+			$lines[] = sprintf( 'pre-run transient snapshot (our read): plugins=%d, themes=%d, core=%s',
+				(int) ( $snapshot['plugins_response_count'] ?? 0 ),
+				(int) ( $snapshot['themes_response_count'] ?? 0 ),
+				! empty( $snapshot['core_has_response'] ) ? 'pending' : 'none'
+			);
+		}
+
+		$transient_reads = (array) ( $breadcrumbs['transient_reads'] ?? array() );
+		if ( ! empty( $transient_reads ) ) {
+			$lines[] = '— site_transient_$type reads during run():';
+			foreach ( $transient_reads as $read ) {
+				$lines[] = sprintf( '   %s: response_count=%d', $read['transient'] ?? '?', (int) ( $read['response_count'] ?? 0 ) );
+			}
+		} else {
+			$lines[] = 'site_transient_$type reads during run(): 0 (run() never reached the transient read)';
+		}
+
+		$pre_transient_reads = (array) ( $breadcrumbs['pre_transient_reads'] ?? array() );
+		$short_circuits      = 0;
+		foreach ( $pre_transient_reads as $read ) {
+			if ( ! empty( $read['short_circuited'] ) ) {
+				$short_circuits++;
+			}
+		}
+		$lines[] = sprintf( 'pre_site_transient_$type short-circuits during run(): %d', $short_circuits );
+
+		if ( isset( $breadcrumbs['pre_run_lock_held'] ) ) {
+			$lines[] = sprintf( 'auto_updater.lock state pre-run: %s', $breadcrumbs['pre_run_lock_held'] ? 'held' : 'free' );
+		}
+		if ( isset( $breadcrumbs['post_run_lock_held'] ) ) {
+			$lines[] = sprintf( 'auto_updater.lock state post-run: %s', $breadcrumbs['post_run_lock_held'] ? 'held' : 'free' );
 		}
 
 		$pre_install_errors = (array) ( $breadcrumbs['upgrader_pre_install_errors'] ?? array() );

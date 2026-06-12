@@ -61,6 +61,11 @@ class Update_Doctor_Update_Trigger {
 			'is_main_network'               => function_exists( 'is_main_network' ) ? is_main_network() : null,
 			'is_main_site'                  => function_exists( 'is_main_site' ) ? is_main_site() : null,
 			'is_multisite'                  => function_exists( 'is_multisite' ) ? is_multisite() : false,
+			'transient_reads'               => array(),
+			'pre_transient_reads'           => array(),
+			'pre_run_transient_snapshot'    => null,
+			'pre_run_lock_held'             => null,
+			'post_run_lock_held'            => null,
 		);
 
 		add_filter(
@@ -172,6 +177,53 @@ class Update_Doctor_Update_Trigger {
 			2
 		);
 
+		// Hook the READ-side transient filters. These are the only thing that can
+		// make WP_Automatic_Updater::run() see different transient data than the
+		// rest of WordPress sees from a simple get_site_transient() call. The
+		// PHP_INT_MAX priority captures the value AFTER every other callback has
+		// had its say — which is what run() actually receives.
+		foreach ( array( 'update_plugins', 'update_themes', 'update_core' ) as $tname ) {
+			add_filter(
+				'site_transient_' . $tname,
+				static function ( $value, $transient ) use ( &$breadcrumbs ) {
+					$breadcrumbs['transient_reads'][] = array(
+						'transient'      => $transient,
+						'has_response'   => is_object( $value ) && isset( $value->response ) && is_array( $value->response ),
+						'response_count' => is_object( $value ) && isset( $value->response ) && is_array( $value->response ) ? count( $value->response ) : 0,
+					);
+					return $value;
+				},
+				PHP_INT_MAX,
+				2
+			);
+			add_filter(
+				'pre_site_transient_' . $tname,
+				static function ( $pre, $transient ) use ( &$breadcrumbs ) {
+					$breadcrumbs['pre_transient_reads'][] = array(
+						'transient'    => $transient,
+						'short_circuited' => false !== $pre,
+					);
+					return $pre;
+				},
+				PHP_INT_MAX,
+				2
+			);
+		}
+
+		// Snapshot the transient state and the lock state ourselves immediately
+		// before triggering wp_maybe_auto_update(). If our snapshot shows 11
+		// pending items and the breadcrumbs show run() saw 0, that's definitive
+		// evidence of a read-side filter interception.
+		$snapshot_plugins = get_site_transient( 'update_plugins' );
+		$snapshot_themes  = get_site_transient( 'update_themes' );
+		$snapshot_core    = get_site_transient( 'update_core' );
+		$breadcrumbs['pre_run_transient_snapshot'] = array(
+			'plugins_response_count' => is_object( $snapshot_plugins ) && isset( $snapshot_plugins->response ) && is_array( $snapshot_plugins->response ) ? count( $snapshot_plugins->response ) : 0,
+			'themes_response_count'  => is_object( $snapshot_themes ) && isset( $snapshot_themes->response ) && is_array( $snapshot_themes->response ) ? count( $snapshot_themes->response ) : 0,
+			'core_has_response'      => is_object( $snapshot_core ) && isset( $snapshot_core->updates ) && is_array( $snapshot_core->updates ) && count( $snapshot_core->updates ) > 0,
+		);
+		$breadcrumbs['pre_run_lock_held'] = (bool) get_option( 'auto_updater.lock' );
+
 		// Capture any PHP notices/warnings emitted during the run.
 		$captured_errors = array();
 		set_error_handler(
@@ -205,6 +257,8 @@ class Update_Doctor_Update_Trigger {
 		$output = ob_get_clean();
 		restore_error_handler();
 		self::$manual_run = false;
+
+		$breadcrumbs['post_run_lock_held'] = (bool) get_option( 'auto_updater.lock' );
 
 		// Stash results in a transient and redirect back. Keeping it in a transient
 		// keeps the URL short and avoids leaking details into the address bar.

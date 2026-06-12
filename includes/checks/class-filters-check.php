@@ -34,14 +34,20 @@ class Update_Doctor_Filters_Check extends Update_Doctor_Check {
 
 	public function run() {
 		$filters = array(
-			'automatic_updater_disabled'         => __( 'Master kill-switch filter; if any callback returns true, ALL auto-updates are disabled.', 'update-doctor' ),
-			'auto_update_plugin'                 => __( 'Per-plugin opt-in filter. If any callback returns false, plugin auto-updates are skipped.', 'update-doctor' ),
-			'auto_update_theme'                  => __( 'Per-theme opt-in filter. If any callback returns false, theme auto-updates are skipped.', 'update-doctor' ),
-			'auto_update_core'                   => __( 'Per-release filter for core auto-updates.', 'update-doctor' ),
-			'auto_update_translation'            => __( 'Per-translation filter for translation auto-updates.', 'update-doctor' ),
-			'file_mod_allowed'                   => __( 'Gates whether file modifications (including updates) are allowed at all.', 'update-doctor' ),
-			'pre_set_site_transient_update_plugins' => __( 'Mutates the available-plugin-updates transient. Misuse here can hide updates entirely.', 'update-doctor' ),
-			'pre_set_site_transient_update_themes'  => __( 'Mutates the available-theme-updates transient.', 'update-doctor' ),
+			'automatic_updater_disabled'              => __( 'Master kill-switch filter; if any callback returns true, ALL auto-updates are disabled.', 'update-doctor' ),
+			'auto_update_plugin'                      => __( 'Per-plugin opt-in filter. If any callback returns false, plugin auto-updates are skipped.', 'update-doctor' ),
+			'auto_update_theme'                       => __( 'Per-theme opt-in filter. If any callback returns false, theme auto-updates are skipped.', 'update-doctor' ),
+			'auto_update_core'                        => __( 'Per-release filter for core auto-updates.', 'update-doctor' ),
+			'auto_update_translation'                 => __( 'Per-translation filter for translation auto-updates.', 'update-doctor' ),
+			'file_mod_allowed'                        => __( 'Gates whether file modifications (including updates) are allowed at all.', 'update-doctor' ),
+			'pre_set_site_transient_update_plugins'   => __( 'Mutates the available-plugin-updates transient when it is WRITTEN. Misuse here can hide updates entirely.', 'update-doctor' ),
+			'pre_set_site_transient_update_themes'    => __( 'Mutates the available-theme-updates transient when it is WRITTEN.', 'update-doctor' ),
+			'pre_site_transient_update_plugins'       => __( 'Short-circuits the available-plugin-updates transient READ. Returning anything other than false bypasses the DB entirely and is what the auto-updater will see.', 'update-doctor' ),
+			'pre_site_transient_update_themes'        => __( 'Short-circuits the available-theme-updates transient READ.', 'update-doctor' ),
+			'pre_site_transient_update_core'          => __( 'Short-circuits the available-core-update transient READ.', 'update-doctor' ),
+			'site_transient_update_plugins'           => __( 'Modifies the available-plugin-updates transient when it is READ. A callback that returns a stripped object will cause WP_Automatic_Updater::run() to iterate nothing — even if the DB still holds the original.', 'update-doctor' ),
+			'site_transient_update_themes'            => __( 'Modifies the available-theme-updates transient when it is READ.', 'update-doctor' ),
+			'site_transient_update_core'              => __( 'Modifies the available-core-update transient when it is READ.', 'update-doctor' ),
 		);
 
 		$results = array();

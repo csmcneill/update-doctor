@@ -4,7 +4,7 @@ Tags: updates, automatic updates, diagnostics, troubleshooting, maintenance
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.1.2
+Stable tag: 1.1.3
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,11 @@ Email notifications add a side-effect that some site owners may not want (for ex
 WordPress core has sent auto-update result emails since 5.5. Update Doctor's email is additive: it covers silent skips (which core does not email about) and gives you a uniform "open the diagnostic page" call to action. You may receive both emails if you enable Update Doctor's notifications.
 
 == Changelog ==
+
+= 1.1.3 =
+* New: Filters and Hooks check now inspects the read-side transient filters — `pre_site_transient_update_plugins`, `pre_site_transient_update_themes`, `pre_site_transient_update_core`, `site_transient_update_plugins`, `site_transient_update_themes`, `site_transient_update_core`. A callback on these can return a stripped value when WP reads the transient, causing `WP_Automatic_Updater::run()` to iterate nothing even when the DB still contains pending items.
+* New: trigger now captures transient state and `auto_updater.lock` state immediately before and after `wp_maybe_auto_update()`. Compared against what the read filters returned during run(), this isolates "transient genuinely empty" from "transient was full but the read-filter chain stripped it."
+* New: Last Update Attempt check identifies "transient read interception" as a distinct failure mode when the pre-run snapshot shows pending items but the read-filter breadcrumbs show run() saw zero. This is the smoking-gun signature for managed-host mu-plugins that adjust transient visibility based on request context.
 
 = 1.1.2 =
 * New: per-item filter breadcrumbs on `auto_update_plugin`, `auto_update_theme`, and `auto_update_core` (captured at PHP_INT_MAX so the final consensus value after every other callback is recorded). This counts one invocation per item iterated by `WP_Automatic_Updater::run()` regardless of `should_update()` outcome — which distinguishes "iteration loop never executed" from "iterated N items and should_update returned false for each."
