@@ -4,7 +4,7 @@ Tags: updates, automatic updates, diagnostics, troubleshooting, maintenance
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.1.3
+Stable tag: 1.1.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,11 @@ Email notifications add a side-effect that some site owners may not want (for ex
 WordPress core has sent auto-update result emails since 5.5. Update Doctor's email is additive: it covers silent skips (which core does not email about) and gives you a uniform "open the diagnostic page" call to action. You may receive both emails if you enable Update Doctor's notifications.
 
 == Changelog ==
+
+= 1.1.4 =
+* New: Filters and Hooks check now inspects four additional auto-update filter points: `option_auto_update_plugins`, `option_auto_update_themes`, `pre_update_option_auto_update_plugins`, `pre_update_option_auto_update_themes`. Managed-host mu-plugins use these to strip platform-managed plugins from the user's auto-update opt-in list. With these inspected, Update Doctor now covers all eight known Atomic Platform / Pressable interception points.
+* New: Per-Item check classifies each plugin as host-managed (symlinked from a shared `/wordpress/` store, updated externally by the host) or user-installed (real directory, eligible for WordPress's normal auto-update). Host-managed plugins are tagged `[host-managed]` and surface in a separate "Host-managed plugins detected" callout explaining that they're updated externally and not a bug.
+* Note on architecture: this release was informed by reading the actual Atomic Platform mu-plugin source on a real Pressable site. Pressable maintains a shared `/wordpress/plugins/{slug}/{version}/` store and symlinks managed plugins (Jetpack, WooCommerce, Akismet, etc.) into each site. The mu-plugin's `is_managed_plugin` test checks whether a plugin's directory is a symlink whose realpath lives under `/wordpress/`. Update Doctor now applies the same test for accurate per-plugin classification.
 
 = 1.1.3 =
 * New: Filters and Hooks check now inspects the read-side transient filters — `pre_site_transient_update_plugins`, `pre_site_transient_update_themes`, `pre_site_transient_update_core`, `site_transient_update_plugins`, `site_transient_update_themes`, `site_transient_update_core`. A callback on these can return a stripped value when WP reads the transient, causing `WP_Automatic_Updater::run()` to iterate nothing even when the DB still contains pending items.

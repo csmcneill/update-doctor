@@ -58,10 +58,13 @@ class Update_Doctor_Per_Item_Check extends Update_Doctor_Check {
 
 		$plugin_lines        = array();
 		$license_gated_count = 0;
+		$managed_count       = 0;
+		$managed_lines       = array();
 
 		foreach ( $plugins as $file => $data ) {
 			$has_update = isset( $plugin_updates->response[ $file ] );
 			$opted_in   = in_array( $file, $auto_plugins, true );
+			$managed    = $this->is_host_managed_plugin( $file );
 
 			$item              = new stdClass();
 			$item->plugin      = $file;
@@ -74,18 +77,40 @@ class Update_Doctor_Per_Item_Check extends Update_Doctor_Check {
 			}
 
 			$would_update = $updater->should_update( 'plugin', $item, WP_PLUGIN_DIR );
-			$reason       = $this->reason_plugin( $has_update, $opted_in, $would_update, $package );
+			$reason       = $this->reason_plugin( $has_update, $opted_in, $would_update, $package, $managed );
 
-			if ( $has_update && $would_update && '' === $package ) {
+			if ( $has_update && $would_update && '' === $package && ! $managed ) {
 				$license_gated_count++;
 			}
+			if ( $managed ) {
+				$managed_count++;
+				$managed_lines[] = sprintf( '%s (%s)', $data['Name'], $file );
+			}
 
+			$source_tag = $managed ? ' [host-managed]' : '';
 			$plugin_lines[] = sprintf(
-				'%s (%s) — %s%s',
+				'%s (%s) — %s%s%s',
 				$data['Name'],
 				$data['Version'],
 				$reason,
-				$has_update ? sprintf( ' [update available: %s]', $item->new_version ) : ''
+				$has_update ? sprintf( ' [update available: %s]', $item->new_version ) : '',
+				$source_tag
+			);
+		}
+
+		if ( $managed_count > 0 ) {
+			$results[] = Update_Doctor_Diagnostic::info(
+				__( 'Host-managed plugins detected', 'update-doctor' ),
+				sprintf(
+					_n(
+						'%d plugin is symlinked from a shared host-managed store and is updated externally by your hosting provider. WordPress\'s auto-update system intentionally skips these plugins because the host handles them. This is normal and not a bug.',
+						'%d plugins are symlinked from a shared host-managed store and are updated externally by your hosting provider. WordPress\'s auto-update system intentionally skips these plugins because the host handles them. This is normal and not a bug.',
+						$managed_count,
+						'update-doctor'
+					),
+					$managed_count
+				),
+				$managed_lines
 			);
 		}
 
@@ -151,7 +176,12 @@ class Update_Doctor_Per_Item_Check extends Update_Doctor_Check {
 		return $results;
 	}
 
-	private function reason_plugin( $has_update, $opted_in, $would_update, $package ) {
+	private function reason_plugin( $has_update, $opted_in, $would_update, $package, $managed = false ) {
+		if ( $managed ) {
+			return $has_update
+				? __( 'will NOT auto-update via WordPress — symlinked from host-managed store; your host updates this externally', 'update-doctor' )
+				: __( 'no update available (host-managed plugin)', 'update-doctor' );
+		}
 		if ( ! $has_update ) {
 			return __( 'no update available', 'update-doctor' );
 		}
@@ -165,6 +195,35 @@ class Update_Doctor_Per_Item_Check extends Update_Doctor_Check {
 			return __( 'will NOT auto-update — not opted in (Plugins/Themes screen → enable auto-updates)', 'update-doctor' );
 		}
 		return __( 'will NOT auto-update — a filter callback returned false (see Filters section)', 'update-doctor' );
+	}
+
+	/**
+	 * A plugin is "host-managed" on Atomic/Pressable when its directory in
+	 * wp-content/plugins/ is a symlink whose realpath lives under /wordpress/.
+	 * This matches the test that atomic-platform.php uses to decide whether to
+	 * strip the plugin from update transients and opt-in lists.
+	 */
+	private function is_host_managed_plugin( $plugin_file ) {
+		if ( ! is_string( $plugin_file ) || '' === $plugin_file ) {
+			return false;
+		}
+		$plugin_dir = WP_PLUGIN_DIR . '/' . dirname( $plugin_file );
+		if ( ! is_dir( $plugin_dir ) || ! is_link( $plugin_dir ) ) {
+			return false;
+		}
+		$real = @realpath( $plugin_dir );
+		if ( ! $real ) {
+			return false;
+		}
+		// Common host-managed realpath prefixes. Pressable / WordPress.com Atomic
+		// use /wordpress/. Other managed hosts may use different prefixes; this
+		// list is the verified set as of v1.1.4.
+		foreach ( array( '/wordpress/', '/usr/share/wordpress/', '/opt/wordpress/' ) as $prefix ) {
+			if ( 0 === strpos( $real, $prefix ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private function reason_theme( $has_update, $opted_in, $would_update, $package ) {

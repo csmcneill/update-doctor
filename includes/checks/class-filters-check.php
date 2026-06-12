@@ -48,6 +48,10 @@ class Update_Doctor_Filters_Check extends Update_Doctor_Check {
 			'site_transient_update_plugins'           => __( 'Modifies the available-plugin-updates transient when it is READ. A callback that returns a stripped object will cause WP_Automatic_Updater::run() to iterate nothing — even if the DB still holds the original.', 'update-doctor' ),
 			'site_transient_update_themes'            => __( 'Modifies the available-theme-updates transient when it is READ.', 'update-doctor' ),
 			'site_transient_update_core'              => __( 'Modifies the available-core-update transient when it is READ.', 'update-doctor' ),
+			'option_auto_update_plugins'              => __( 'Filters the auto_update_plugins option when READ. Managed-host mu-plugins use this to strip platform-managed plugins from the user-visible opt-in list.', 'update-doctor' ),
+			'option_auto_update_themes'               => __( 'Filters the auto_update_themes option when READ.', 'update-doctor' ),
+			'pre_update_option_auto_update_plugins'   => __( 'Filters the auto_update_plugins option when WRITTEN. Managed-host mu-plugins use this to prevent users from opting in to auto-updates for platform-managed plugins.', 'update-doctor' ),
+			'pre_update_option_auto_update_themes'    => __( 'Filters the auto_update_themes option when WRITTEN.', 'update-doctor' ),
 		);
 
 		$results = array();
