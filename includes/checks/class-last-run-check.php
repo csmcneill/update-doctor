@@ -255,6 +255,21 @@ class Update_Doctor_Last_Run_Check extends Update_Doctor_Check {
 						), array_map( static function ( $line ) { return '   ' . $line; }, $reads_lines ), array( '— pre_site_transient_$type reads during run():' ), array_map( static function ( $line ) { return '   ' . $line; }, $pre_reads_lines ) )
 					);
 				}
+
+				// run() saw the items (read returned > 0) but still iterated none of
+				// them — should_update() returned false BEFORE the auto_update filter.
+				// In WP core that means the pre-filter gate in should_update() bailed:
+				// either request_filesystem_credentials() failed (strict ownership) or
+				// is_vcs_checkout() was true. The Unattended Update Gate check pinpoints
+				// which one.
+				return Update_Doctor_Diagnostic::fail(
+					__( 'Updates were skipped before the auto_update filter (pre-filter gate)', 'update-doctor' ),
+					sprintf(
+						__( 'Update Doctor saw %1$d pending plugins and the updater read the same %1$d during run() — so the transient is fine and read interception is NOT the cause. But the auto_update_plugin filter fired 0 times, which means WP_Automatic_Updater::should_update() returned false for every item BEFORE reaching that filter. In WP core that happens at exactly one place: the gate that requires direct filesystem access (request_filesystem_credentials with strict ownership) and rejects VCS checkouts. Every plugin is skipped regardless of its opt-in setting. See the "Unattended Update Gate" section above — it pinpoints whether the cause is a filesystem-ownership mismatch or a detected VCS checkout. A filesystem-ownership mismatch is the most common cause and often appears after a site is migrated between hosts.', 'update-doctor' ),
+						$snapshot['plugins_response_count']
+					),
+					$details
+				);
 			}
 
 			// Case: our snapshot also saw an empty transient. Genuine empty state.

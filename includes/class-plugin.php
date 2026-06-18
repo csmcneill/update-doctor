@@ -75,6 +75,7 @@ class Update_Doctor_Plugin {
 		$this->runner->register( new Update_Doctor_Upgrader_Hooks_Check( $this->hook_inspector ) );
 		$this->runner->register( new Update_Doctor_Cron_Check( $this->host_detector ) );
 		$this->runner->register( new Update_Doctor_Filesystem_Check() );
+		$this->runner->register( new Update_Doctor_Unattended_Gate_Check() );
 		$this->runner->register( new Update_Doctor_Options_Check() );
 		$this->runner->register( new Update_Doctor_Per_Item_Check() );
 		$this->runner->register( new Update_Doctor_String_Scanner_Check() );
