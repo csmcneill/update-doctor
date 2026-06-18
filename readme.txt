@@ -4,7 +4,7 @@ Tags: updates, automatic updates, diagnostics, troubleshooting, maintenance
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.1.5
+Stable tag: 1.1.6
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,12 @@ Email notifications add a side-effect that some site owners may not want (for ex
 WordPress core has sent auto-update result emails since 5.5. Update Doctor's email is additive: it covers silent skips (which core does not email about) and gives you a uniform "open the diagnostic page" call to action. You may receive both emails if you enable Update Doctor's notifications.
 
 == Changelog ==
+
+= 1.1.6 =
+* Fix: the Unattended Update Gate check no longer reimplements WordPress's gate conditions (the v1.1.5 ownership comparison produced a false-positive "[MISMATCH]" warning on a healthy site). It now calls WordPress's own functions directly and reports their actual return values: `request_filesystem_credentials( '', '', false, WP_PLUGIN_DIR, null, false )` for the filesystem branch, and the public `WP_Automatic_Updater::is_vcs_checkout()` for both the plugin and ABSPATH contexts. These are exactly the calls should_update() makes, so there are no false positives.
+* New: when a VCS checkout is detected, the check locates the offending `.git`/`.svn`/`.hg`/`.bzr` directory by scanning the same trees WordPress inspects, and names the path so it can be removed.
+* New: FS_METHOD awareness. When FS_METHOD is defined as "direct" (common on managed hosts such as Pressable and WordPress.com Atomic), the filesystem branch of the gate is forced to succeed, so it cannot be the cause — the check says so explicitly, which points the diagnosis squarely at the VCS-checkout condition.
+* Change: the Last Update Attempt diagnosis for the "read returned items but zero iterations" case no longer leans on file-ownership as the likely cause; it now notes that on FS_METHOD=direct sites the culprit is a VCS checkout, and defers to the Unattended Update Gate section which reports the exact failing condition.
 
 = 1.1.5 =
 * New: **Unattended Update Gate check.** This is the big one. WP_Automatic_Updater::should_update() has a gate that runs BEFORE the auto_update_{$type} filter: it returns false if it cannot obtain direct filesystem access (request_filesystem_credentials with strict ownership) or if it detects a VCS checkout. When this gate fails, every plugin and theme is silently skipped during automatic updates — even with auto-updates enabled and the update transient fully populated — and nothing in the wp-admin UI reveals why. The new check replicates this gate exactly: it resolves the filesystem method for the plugin and theme contexts with strict ownership (distinct from the relaxed, context-free check the Filesystem section reports), compares file ownership against the PHP process uid, and scans for VCS metadata directories up to the install root.
