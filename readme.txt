@@ -4,7 +4,7 @@ Tags: updates, automatic updates, diagnostics, troubleshooting, maintenance
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.1.6
+Stable tag: 1.1.7
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,10 @@ Email notifications add a side-effect that some site owners may not want (for ex
 WordPress core has sent auto-update result emails since 5.5. Update Doctor's email is additive: it covers silent skips (which core does not email about) and gives you a uniform "open the diagnostic page" call to action. You may receive both emails if you enable Update Doctor's notifications.
 
 == Changelog ==
+
+= 1.1.7 =
+* Fix: the Last Update Attempt check is now opt-in aware. When the auto_update filter returns false for an item, it cross-references the auto_update_plugins / auto_update_themes options. A "false" for an item that simply isn't opted in is now reported as expected (INFO), not as an issue. Only a "false" for an item that IS opted in is flagged as a fault — that means a filter callback is overriding the opt-in, and the affected items are named. Previously every false-return was reported as a runtime anomaly, which was misleading for not-opted-in plugins.
+* New: auto_updater.lock lifecycle probe. The trigger now observes (without touching the lock) whether auto_updater.lock is written and released during the run, via the added_option / updated_option / deleted_option actions. WP_Upgrader::release_lock() deletes the option, so a delete during the run proves run() acquired and released the lock — i.e. it got past the create_lock() gate. When iteration never starts and no lock write/release is observed (and the lock is free before and after), the diagnosis now identifies likely lock contention: another process (on managed hosts, the platform's own update runner) held the lock when the manual trigger fired. This is the signature that best fits a manual trigger doing nothing while the host's scheduled updates still work.
 
 = 1.1.6 =
 * Fix: the Unattended Update Gate check no longer reimplements WordPress's gate conditions (the v1.1.5 ownership comparison produced a false-positive "[MISMATCH]" warning on a healthy site). It now calls WordPress's own functions directly and reports their actual return values: `request_filesystem_credentials( '', '', false, WP_PLUGIN_DIR, null, false )` for the filesystem branch, and the public `WP_Automatic_Updater::is_vcs_checkout()` for both the plugin and ABSPATH contexts. These are exactly the calls should_update() makes, so there are no false positives.

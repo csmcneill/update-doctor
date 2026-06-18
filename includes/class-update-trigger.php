@@ -66,7 +66,33 @@ class Update_Doctor_Update_Trigger {
 			'pre_run_transient_snapshot'    => null,
 			'pre_run_lock_held'             => null,
 			'post_run_lock_held'            => null,
+			'lock_written_during_run'       => false,
+			'lock_released_during_run'      => false,
 		);
+
+		// Observe the auto_updater.lock lifecycle without touching it. WP_Upgrader's
+		// create_lock()/release_lock() are essentially the only writers of this option,
+		// and release_lock() deletes it via delete_option() (which reliably fires the
+		// deleted_option action). A delete during the run is strong evidence that run()
+		// acquired AND released the lock — i.e. it got past the create_lock() gate at the
+		// top of run() and executed the locked section. No write and no delete, with the
+		// lock free before and after, is the signature of run() bailing at create_lock()
+		// because another process already held the lock (lock contention).
+		add_action( 'deleted_option', static function ( $option ) use ( &$breadcrumbs ) {
+			if ( 'auto_updater.lock' === $option ) {
+				$breadcrumbs['lock_released_during_run'] = true;
+			}
+		}, 10, 1 );
+		add_action( 'added_option', static function ( $option ) use ( &$breadcrumbs ) {
+			if ( 'auto_updater.lock' === $option ) {
+				$breadcrumbs['lock_written_during_run'] = true;
+			}
+		}, 10, 1 );
+		add_action( 'updated_option', static function ( $option ) use ( &$breadcrumbs ) {
+			if ( 'auto_updater.lock' === $option ) {
+				$breadcrumbs['lock_written_during_run'] = true;
+			}
+		}, 10, 1 );
 
 		add_filter(
 			'automatic_updater_disabled',

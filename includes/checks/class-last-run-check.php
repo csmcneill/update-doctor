@@ -290,11 +290,27 @@ class Update_Doctor_Last_Run_Check extends Update_Doctor_Check {
 				);
 			}
 
-			// Fallback: lock not held, snapshot inconclusive, no clear signature.
+			// Fallback: iteration never started and none of the earlier signatures matched.
+			// Use the lock-lifecycle observation to separate a create_lock() bail (contention)
+			// from run() reaching past the lock but the loop body not executing.
+			$lock_released = ! empty( $breadcrumbs['lock_released_during_run'] );
+			$lock_written  = ! empty( $breadcrumbs['lock_written_during_run'] );
+
+			if ( ! $lock_released && ! $lock_written ) {
+				return Update_Doctor_Diagnostic::fail(
+					__( 'Updater could not acquire the update lock (likely contention)', 'update-doctor' ),
+					sprintf(
+						__( '%d updates were pending and is_disabled() returned false, but Update Doctor saw no sign that run() ever acquired auto_updater.lock — the option was neither written nor released during the run, and it was free before and after. WP_Upgrader::create_lock() is the gate immediately before the per-item loop, so this is consistent with run() bailing there because another process already held the lock. On managed hosts the platform\'s own update runner periodically holds this lock; a manual trigger that collides with it returns immediately and does nothing, while the host\'s scheduled updates (the lock holder) proceed normally. Lock contention is intermittent — re-run the live test a few times; if the result flips between this and a successful run, contention is confirmed.', 'update-doctor' ),
+						$pending_count
+					),
+					$details
+				);
+			}
+
 			return Update_Doctor_Diagnostic::fail(
-				__( 'Updater ran but never began per-item iteration', 'update-doctor' ),
+				__( 'Updater acquired the lock but never began per-item iteration', 'update-doctor' ),
 				sprintf(
-					__( '%d updates were pending and is_disabled() returned false, but the foreach loop over $plugins->response never executed. The read-side breadcrumbs above show what each transient filter returned during run(). If site_transient_update_plugins shows response_count=0, the read filter chain is the cause; investigate the callbacks listed in the Filters and Hooks section for that filter.', 'update-doctor' ),
+					__( '%d updates were pending, is_disabled() returned false, and run() shows signs of acquiring the update lock — yet the foreach loop over $plugins->response never executed. The most likely remaining cause is that the update_plugins transient held no response array at the moment run() read it (a refresh race). The read-side breadcrumbs above show what each transient filter returned during run().', 'update-doctor' ),
 					$pending_count
 				),
 				$details
@@ -302,27 +318,58 @@ class Update_Doctor_Last_Run_Check extends Update_Doctor_Check {
 		}
 
 		if ( empty( $pre_auto ) ) {
-			// Filter chain ran but should_update returned false for every item. This is the
-			// most informative case — we know exactly which items were considered and what the
-			// auto_update_$type filter chain decided for each.
+			// Filter chain ran but should_update returned false for every item. Cross-reference
+			// the opt-in lists: a "false" for an item the user never opted in is EXPECTED, not a
+			// fault. Only a "false" for an OPTED-IN item is anomalous — that means a filter
+			// callback is overriding the user's opt-in.
+			$auto_plugins = (array) get_option( 'auto_update_plugins', array() );
+			$auto_themes  = (array) get_option( 'auto_update_themes', array() );
+
 			$per_item_lines = array();
+			$anomalous      = array();
+
 			foreach ( $plugin_filter_invocations as $inv ) {
-				$per_item_lines[] = sprintf( 'plugin %s → auto_update_plugin returned %s', $inv['name'] ?: '?', $inv['value'] );
+				$name     = $inv['name'] ?: '?';
+				$opted_in = in_array( $name, $auto_plugins, true );
+				$is_false = ( 'false' === $inv['value'] || false === $inv['value'] );
+				$per_item_lines[] = sprintf( 'plugin %s → auto_update_plugin returned %s %s', $name, $inv['value'], $opted_in ? '[opted in]' : '[not opted in]' );
+				if ( $is_false && $opted_in ) {
+					$anomalous[] = 'plugin ' . $name;
+				}
 			}
 			foreach ( $theme_filter_invocations as $inv ) {
-				$per_item_lines[] = sprintf( 'theme %s → auto_update_theme returned %s', $inv['name'] ?: '?', $inv['value'] );
+				$name     = $inv['name'] ?: '?';
+				$opted_in = in_array( $name, $auto_themes, true );
+				$is_false = ( 'false' === $inv['value'] || false === $inv['value'] );
+				$per_item_lines[] = sprintf( 'theme %s → auto_update_theme returned %s %s', $name, $inv['value'], $opted_in ? '[opted in]' : '[not opted in]' );
+				if ( $is_false && $opted_in ) {
+					$anomalous[] = 'theme ' . $name;
+				}
 			}
 			foreach ( $core_filter_invocations as $inv ) {
 				$per_item_lines[] = sprintf( 'core → auto_update_core returned %s', $inv['value'] );
 			}
 
-			return Update_Doctor_Diagnostic::fail(
-				__( 'Updater iterated items but should_update returned false at runtime', 'update-doctor' ),
-				sprintf(
-					__( 'WordPress reached %d items during iteration but the upgrader was never invoked for any of them. The auto_update_$type filter chain returned false for every item — different from what the Per-Item check sees in admin context. The most likely cause is a filter callback that behaves differently when wp_doing_cron() or wp_doing_ajax() return different values, or one that inspects is_admin() / current_user_can(). The per-item filter results are listed below; check the source files of the callbacks listed in the Filters and Hooks section against those plugin slugs.', 'update-doctor' ),
-					$filter_invocation_total
-				),
-				array_merge( $details, array( '— per-item filter chain results:' ), array_map( static function ( $line ) { return '   ' . $line; }, $per_item_lines ) )
+			$body_details = array_merge( $details, array( '— per-item filter chain results:' ), array_map( static function ( $line ) { return '   ' . $line; }, $per_item_lines ) );
+
+			if ( ! empty( $anomalous ) ) {
+				return Update_Doctor_Diagnostic::fail(
+					__( 'Opted-in items were skipped by a filter override', 'update-doctor' ),
+					sprintf(
+						__( 'WordPress iterated %1$d items and the upgrader ran for none. %2$d of them ARE opted in to auto-updates, yet the auto_update filter still returned false — so a callback is overriding the opt-in for these items. Inspect the auto_update_plugin / auto_update_theme callbacks in the Filters and Hooks section; one of them is returning false for: %3$s.', 'update-doctor' ),
+						$filter_invocation_total,
+						count( $anomalous ),
+						implode( ', ', $anomalous )
+					),
+					$body_details
+				);
+			}
+
+			// Every "false" was simply a not-opted-in item — expected, not a fault.
+			return Update_Doctor_Diagnostic::info(
+				__( 'Iterated items are not opted in to auto-updates', 'update-doctor' ),
+				__( 'WordPress evaluated the pending items and the auto_update filter returned false for each — but only because they are not opted in to automatic updates (Plugins/Themes screen → enable auto-updates). Nothing is being skipped against your settings; this is expected behaviour, not a fault. Opt the items in and re-run to exercise the full update path.', 'update-doctor' ),
+				$body_details
 			);
 		}
 
@@ -408,6 +455,8 @@ class Update_Doctor_Last_Run_Check extends Update_Doctor_Check {
 		if ( isset( $breadcrumbs['post_run_lock_held'] ) ) {
 			$lines[] = sprintf( 'auto_updater.lock state post-run: %s', $breadcrumbs['post_run_lock_held'] ? 'held' : 'free' );
 		}
+		$lines[] = sprintf( 'auto_updater.lock written during run: %s', ! empty( $breadcrumbs['lock_written_during_run'] ) ? 'yes' : 'no' );
+		$lines[] = sprintf( 'auto_updater.lock released during run: %s', ! empty( $breadcrumbs['lock_released_during_run'] ) ? 'yes (run reached past create_lock)' : 'no' );
 
 		$pre_install_errors = (array) ( $breadcrumbs['upgrader_pre_install_errors'] ?? array() );
 		if ( ! empty( $pre_install_errors ) ) {
