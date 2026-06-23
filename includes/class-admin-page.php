@@ -91,11 +91,25 @@ class Update_Doctor_Admin_Page {
 					data-report="<?php echo esc_attr( $report ); ?>">
 					<?php esc_html_e( 'Copy Markdown Report', 'update-doctor' ); ?>
 				</button>
+
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline" id="update-doctor-clear-lock-form">
+					<input type="hidden" name="action" value="<?php echo esc_attr( Update_Doctor_Update_Trigger::CLEAR_LOCK_ACTION ); ?>" />
+					<?php wp_nonce_field( Update_Doctor_Update_Trigger::CLEAR_LOCK_ACTION, Update_Doctor_Update_Trigger::CLEAR_LOCK_NONCE ); ?>
+					<button type="button" class="button button-link-delete" id="update-doctor-clear-lock-button">
+						<?php esc_html_e( 'Clear Stuck Update Lock', 'update-doctor' ); ?>
+					</button>
+				</form>
 			</div>
 
 			<p class="update-doctor-actions-help description">
-				<?php esc_html_e( '"Run Live Update Test" calls WordPress\'s automatic-update process directly, applies any pending updates, and captures the output (including PHP errors) into the diagnostic. This is the most reliable way to determine whether updates can actually run on this site.', 'update-doctor' ); ?>
+				<?php esc_html_e( '"Run Live Update Test" calls WordPress\'s automatic-update process directly, applies any pending updates, and captures the output (including PHP errors) into the diagnostic. "Clear Stuck Update Lock" deletes the auto_updater.lock option from the database — only needed when the Options and Transients section reports a stuck or cache-masked lock.', 'update-doctor' ); ?>
 			</p>
+
+			<?php $this->render_clear_lock_modal(); ?>
+
+			<?php if ( ! empty( $_GET['doctor_lock'] ) ) : ?>
+				<?php $this->render_lock_cleared(); ?>
+			<?php endif; ?>
 
 			<?php if ( ! empty( $_GET['doctor_run'] ) && $last_run_payload ) : ?>
 				<?php $this->render_last_run( $last_run_payload ); ?>
@@ -116,6 +130,57 @@ class Update_Doctor_Admin_Page {
 				<summary><?php esc_html_e( 'View raw Markdown report', 'update-doctor' ); ?></summary>
 				<textarea readonly rows="20" class="large-text code"><?php echo esc_textarea( $report ); ?></textarea>
 			</details>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Confirmation modal for the destructive "Clear Stuck Update Lock" action.
+	 * Hidden by default; admin.js shows it when the button is clicked and submits
+	 * the form only on confirmation.
+	 */
+	private function render_clear_lock_modal() {
+		?>
+		<div class="update-doctor-modal-overlay" id="update-doctor-clear-lock-modal" hidden>
+			<div class="update-doctor-modal" role="dialog" aria-modal="true" aria-labelledby="update-doctor-modal-title">
+				<h2 id="update-doctor-modal-title"><?php esc_html_e( 'Clear the stuck update lock?', 'update-doctor' ); ?></h2>
+				<p>
+					<?php esc_html_e( 'This permanently deletes the auto_updater.lock option from the database and clears it from the object cache. It cannot be undone.', 'update-doctor' ); ?>
+				</p>
+				<p>
+					<?php esc_html_e( 'This is safe when the lock is stale: the lock is meant to be temporary, and a legitimate in-progress update would re-create it on the next run. Only proceed if the Options and Transients section reports a stuck or cache-masked lock.', 'update-doctor' ); ?>
+				</p>
+				<div class="update-doctor-modal-actions">
+					<button type="button" class="button" id="update-doctor-modal-cancel"><?php esc_html_e( 'Cancel', 'update-doctor' ); ?></button>
+					<button type="button" class="button button-primary" id="update-doctor-modal-confirm"><?php esc_html_e( 'Clear the lock', 'update-doctor' ); ?></button>
+				</div>
+			</div>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Result notice after a clear-lock action.
+	 */
+	private function render_lock_cleared() {
+		$payload = get_transient( 'update_doctor_lock_cleared' );
+		delete_transient( 'update_doctor_lock_cleared' );
+		if ( ! is_array( $payload ) ) {
+			return;
+		}
+
+		$class = ! empty( $payload['cleared'] ) ? 'notice notice-success' : 'notice notice-error';
+		?>
+		<div class="<?php echo esc_attr( $class ); ?> update-doctor-lock-cleared">
+			<?php if ( ! empty( $payload['cleared'] ) ) : ?>
+				<p><strong><?php esc_html_e( 'Update lock cleared.', 'update-doctor' ); ?></strong> <?php esc_html_e( 'The auto_updater.lock row was removed from the database and the cache. Run the live update test again to confirm updates now apply.', 'update-doctor' ); ?></p>
+			<?php else : ?>
+				<p><strong><?php esc_html_e( 'Could not confirm the lock was cleared.', 'update-doctor' ); ?></strong> <?php esc_html_e( 'A lock row still appears in the database after the delete attempt. This may indicate a database permissions issue.', 'update-doctor' ); ?></p>
+			<?php endif; ?>
+			<ul class="update-doctor-diagnostic-details">
+				<li>before — database: <?php echo esc_html( $payload['before_db'] ); ?>, cache: <?php echo esc_html( $payload['before_cache'] ); ?></li>
+				<li>after — database: <?php echo esc_html( $payload['after_db'] ); ?></li>
+			</ul>
 		</div>
 		<?php
 	}

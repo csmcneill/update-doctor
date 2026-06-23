@@ -24,12 +24,11 @@
 		});
 	}
 
-	document.addEventListener('DOMContentLoaded', function () {
+	function wireCopyButton() {
 		var btn = document.getElementById('update-doctor-copy-report');
 		if (!btn) {
 			return;
 		}
-
 		btn.addEventListener('click', function () {
 			var report = btn.getAttribute('data-report') || '';
 			var original = btn.textContent;
@@ -45,5 +44,54 @@
 				}, 2000);
 			});
 		});
+	}
+
+	function wireClearLockModal() {
+		var trigger = document.getElementById('update-doctor-clear-lock-button');
+		var modal = document.getElementById('update-doctor-clear-lock-modal');
+		var form = document.getElementById('update-doctor-clear-lock-form');
+		if (!trigger || !modal || !form) {
+			return;
+		}
+
+		var cancel = document.getElementById('update-doctor-modal-cancel');
+		var confirm = document.getElementById('update-doctor-modal-confirm');
+
+		function open() {
+			modal.hidden = false;
+			if (confirm) {
+				confirm.focus();
+			}
+		}
+		function close() {
+			modal.hidden = true;
+			trigger.focus();
+		}
+
+		trigger.addEventListener('click', open);
+		if (cancel) {
+			cancel.addEventListener('click', close);
+		}
+		if (confirm) {
+			confirm.addEventListener('click', function () {
+				form.submit();
+			});
+		}
+		// Click outside the dialog, or Escape, cancels.
+		modal.addEventListener('click', function (e) {
+			if (e.target === modal) {
+				close();
+			}
+		});
+		document.addEventListener('keydown', function (e) {
+			if (!modal.hidden && (e.key === 'Escape' || e.keyCode === 27)) {
+				close();
+			}
+		});
+	}
+
+	document.addEventListener('DOMContentLoaded', function () {
+		wireCopyButton();
+		wireClearLockModal();
 	});
 })();

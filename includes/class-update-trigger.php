@@ -14,6 +14,9 @@ class Update_Doctor_Update_Trigger {
 	const ACTION = 'update_doctor_run_update';
 	const NONCE  = 'update_doctor_run_update_nonce';
 
+	const CLEAR_LOCK_ACTION = 'update_doctor_clear_lock';
+	const CLEAR_LOCK_NONCE  = 'update_doctor_clear_lock_nonce';
+
 	/**
 	 * Marker used by the failure monitor to skip notifications for manual runs.
 	 *
@@ -25,6 +28,60 @@ class Update_Doctor_Update_Trigger {
 
 	public function register() {
 		add_action( 'admin_post_' . self::ACTION, array( $this, 'handle' ) );
+		add_action( 'admin_post_' . self::CLEAR_LOCK_ACTION, array( $this, 'handle_clear_lock' ) );
+	}
+
+	/**
+	 * Delete the auto_updater.lock option, defeating a cache-masked stale lock.
+	 *
+	 * delete_option() finds the row with a direct DB query (so it works even when the
+	 * object cache hides the row from get_option), but we also delete via $wpdb and
+	 * scrub the cache to be certain the masked entry is gone.
+	 */
+	public function handle_clear_lock() {
+		if ( ! current_user_can( 'update_plugins' ) ) {
+			wp_die( esc_html__( 'You do not have permission to clear the update lock.', 'update-doctor' ), 403 );
+		}
+
+		check_admin_referer( self::CLEAR_LOCK_ACTION, self::CLEAR_LOCK_NONCE );
+
+		global $wpdb;
+
+		$before_db    = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", 'auto_updater.lock' ) );
+		$before_cache = get_option( 'auto_updater.lock' );
+
+		// Remove via the WordPress API (cache-aware) and directly (defeats masking).
+		delete_option( 'auto_updater.lock' );
+		$wpdb->delete( $wpdb->options, array( 'option_name' => 'auto_updater.lock' ) );
+
+		// Scrub the object cache: the single option entry and the notoptions mask.
+		wp_cache_delete( 'auto_updater.lock', 'options' );
+		$notoptions = wp_cache_get( 'notoptions', 'options' );
+		if ( is_array( $notoptions ) && isset( $notoptions['auto_updater.lock'] ) ) {
+			unset( $notoptions['auto_updater.lock'] );
+			wp_cache_set( 'notoptions', $notoptions, 'options' );
+		}
+
+		$after_db = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", 'auto_updater.lock' ) );
+
+		$payload = array(
+			'time'         => time(),
+			'before_db'    => null === $before_db ? '(none)' : (string) $before_db,
+			'before_cache' => empty( $before_cache ) ? '(none)' : (string) $before_cache,
+			'after_db'     => null === $after_db ? '(none)' : (string) $after_db,
+			'cleared'      => ( null === $after_db ),
+		);
+		set_transient( 'update_doctor_lock_cleared', $payload, MINUTE_IN_SECONDS * 30 );
+
+		$redirect = add_query_arg(
+			array(
+				'page'         => Update_Doctor_Admin_Page::SLUG,
+				'doctor_lock'  => '1',
+			),
+			admin_url( 'tools.php' )
+		);
+		wp_safe_redirect( $redirect );
+		exit;
 	}
 
 	public function handle() {

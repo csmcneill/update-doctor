@@ -4,7 +4,7 @@ Tags: updates, automatic updates, diagnostics, troubleshooting, maintenance
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.1.7
+Stable tag: 1.2.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,11 @@ Email notifications add a side-effect that some site owners may not want (for ex
 WordPress core has sent auto-update result emails since 5.5. Update Doctor's email is additive: it covers silent skips (which core does not email about) and gives you a uniform "open the diagnostic page" call to action. You may receive both emails if you enable Update Doctor's notifications.
 
 == Changelog ==
+
+= 1.2.0 =
+* New: cache-masked stale lock detection. The auto_updater.lock check now reads the database directly (via $wpdb) and compares it against get_option(). On a persistent object cache, a stale lock row can be invisible to get_option() — and to every UI — while still blocking every automatic update, because WP_Upgrader::create_lock() reads the row with raw SQL that bypasses the cache. When the database has a lock row but the cache reports none, this is flagged as the likely root cause. This is the condition that can make auto-updates silently fail for months and survive a host migration (the row travels with the database).
+* New: "Clear Stuck Update Lock" button. Deletes the auto_updater.lock option from the database (cache-aware delete + direct $wpdb delete + object-cache scrub, to defeat the masking) so updates can run again. The action is gated behind a confirmation modal because it modifies the database and cannot be undone, and it reports the before/after state so the result is auditable.
+* Fix: the Last Update Attempt diagnosis no longer blames a VCS checkout when run() actually bailed at the update lock. It now consults the lock-lifecycle breadcrumbs first: no lock acquired means a create_lock() bail (stuck lock), and the diagnosis points at the lock check and the Clear button rather than the should_update gate.
 
 = 1.1.7 =
 * Fix: the Last Update Attempt check is now opt-in aware. When the auto_update filter returns false for an item, it cross-references the auto_update_plugins / auto_update_themes options. A "false" for an item that simply isn't opted in is now reported as expected (INFO), not as an issue. Only a "false" for an item that IS opted in is flagged as a fault — that means a filter callback is overriding the opt-in, and the affected items are named. Previously every false-return was reported as a runtime anomaly, which was misleading for not-opted-in plugins.

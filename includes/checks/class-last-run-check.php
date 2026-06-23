@@ -256,16 +256,32 @@ class Update_Doctor_Last_Run_Check extends Update_Doctor_Check {
 					);
 				}
 
-				// run() saw the items (read returned > 0) but still iterated none of
-				// them — should_update() returned false BEFORE the auto_update filter.
-				// In WP core that means the pre-filter gate in should_update() bailed:
-				// either request_filesystem_credentials() failed (strict ownership) or
-				// is_vcs_checkout() was true. The Unattended Update Gate check pinpoints
-				// which one.
+				// run() saw the items (read returned > 0) but still iterated none of them.
+				// Two very different causes share this signature; the lock-lifecycle
+				// breadcrumbs tell them apart:
+				//   (a) run() never acquired auto_updater.lock (no write, no release) →
+				//       it bailed at WP_Upgrader::create_lock() BEFORE should_update().
+				//       A stuck/cache-masked lock row is the usual cause.
+				//   (b) run() acquired the lock but should_update() returned false before
+				//       the auto_update filter → the is_vcs_checkout / filesystem gate.
+				$lock_released = ! empty( $breadcrumbs['lock_released_during_run'] );
+				$lock_written  = ! empty( $breadcrumbs['lock_written_during_run'] );
+
+				if ( ! $lock_released && ! $lock_written ) {
+					return Update_Doctor_Diagnostic::fail(
+						__( 'Updater bailed at the update lock before the per-item loop', 'update-doctor' ),
+						sprintf(
+							__( 'Update Doctor saw %1$d pending plugins and run() read the same %1$d — so the transient is fine. But the auto_update filter fired 0 times AND auto_updater.lock was neither written nor released during the run, which means run() never reached should_update(): it returned at WP_Upgrader::create_lock(). create_lock() fails when a lock row already exists in the database, and it reads that row with a raw SQL query that bypasses the object cache — so a stale lock row can be invisible to get_option() (which reads the cache) while still blocking every run. See the auto_updater.lock check in the Options and Transients section; it now compares the database directly against the cache. If it reports a masked stale lock, use the "Clear stuck update lock" button at the top of this page to remove it, then run the test again.', 'update-doctor' ),
+							$snapshot['plugins_response_count']
+						),
+						$details
+					);
+				}
+
 				return Update_Doctor_Diagnostic::fail(
 					__( 'Updates were skipped before the auto_update filter (pre-filter gate)', 'update-doctor' ),
 					sprintf(
-						__( 'Update Doctor saw %1$d pending plugins and the updater read the same %1$d during run() — so the transient is fine and read interception is NOT the cause. But the auto_update_plugin filter fired 0 times, which means WP_Automatic_Updater::should_update() returned false for every item BEFORE reaching that filter. In WP core that happens at exactly one place: the gate that requires filesystem access (request_filesystem_credentials) and rejects VCS checkouts (is_vcs_checkout). Every plugin is skipped regardless of its opt-in setting. The "Unattended Update Gate" section above calls both of those WordPress functions directly and reports which one is failing. Note: if FS_METHOD is defined as "direct" (common on managed hosts), the filesystem branch cannot be the cause and the culprit is a VCS checkout — a stray .git/.svn/.hg/.bzr directory in the plugin or content tree.', 'update-doctor' ),
+						__( 'Update Doctor saw %1$d pending plugins, run() read the same %1$d, and run() acquired the update lock — so the transient is fine and this is not lock contention. But the auto_update filter fired 0 times, meaning WP_Automatic_Updater::should_update() returned false for every item before reaching the filter. That points at the should_update() gate: request_filesystem_credentials() or is_vcs_checkout(). The "Unattended Update Gate" section above calls both directly and reports which one is failing.', 'update-doctor' ),
 						$snapshot['plugins_response_count']
 					),
 					$details
