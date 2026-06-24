@@ -35,6 +35,9 @@ class Update_Doctor_Plugin {
 	/** @var Update_Doctor_Failure_Monitor */
 	public $failure_monitor;
 
+	/** @var Update_Doctor_Activity_Recorder */
+	public $activity_recorder;
+
 	/** @var Update_Doctor_Admin_Page */
 	public $admin_page;
 
@@ -53,6 +56,7 @@ class Update_Doctor_Plugin {
 		$this->report_formatter = new Update_Doctor_Report_Formatter();
 		$this->settings         = new Update_Doctor_Settings();
 		$this->failure_monitor  = new Update_Doctor_Failure_Monitor( $this->settings );
+		$this->activity_recorder = new Update_Doctor_Activity_Recorder();
 		$this->admin_page       = new Update_Doctor_Admin_Page( $this->runner, $this->update_trigger, $this->report_formatter, $this->settings );
 
 		$this->register_checks();
@@ -65,8 +69,9 @@ class Update_Doctor_Plugin {
 			$this->settings->register();
 		}
 
-		// Failure monitor runs on cron context too, not just admin.
+		// These run on cron context too, not just admin, so they observe scheduled runs.
 		$this->failure_monitor->register();
+		$this->activity_recorder->register();
 	}
 
 	private function register_checks() {
@@ -80,6 +85,7 @@ class Update_Doctor_Plugin {
 		$this->runner->register( new Update_Doctor_Per_Item_Check() );
 		$this->runner->register( new Update_Doctor_String_Scanner_Check() );
 		$this->runner->register( new Update_Doctor_Last_Run_Check() );
+		$this->runner->register( new Update_Doctor_Activity_Check() );
 		$this->runner->register( new Update_Doctor_Error_Log_Check() );
 	}
 

@@ -4,7 +4,7 @@ Tags: updates, automatic updates, diagnostics, troubleshooting, maintenance
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.2.2
+Stable tag: 1.2.3
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,10 @@ Email notifications add a side-effect that some site owners may not want (for ex
 WordPress core has sent auto-update result emails since 5.5. Update Doctor's email is additive: it covers silent skips (which core does not email about) and gives you a uniform "open the diagnostic page" call to action. You may receive both emails if you enable Update Doctor's notifications.
 
 == Changelog ==
+
+= 1.2.3 =
+* New: passive Auto-Update Activity Log. A recorder registered on every request (including WP-Cron) captures real auto-update events as they happen — item attempts (pre_auto_update), completed upgrades, batch results, and lock acquire/release — and tags each as [scheduled] or [manual]. The new Auto-Update Activity Log check displays them. This finally observes what the host's own scheduled updater does, rather than relying on the manual Run Live Update Test. If [scheduled] attempts/upgrades appear, the platform updater is reaching the update process and any remaining stalls are per-item; if only [manual] events ever appear, the scheduled updater is not invoking WordPress's auto-updater on the site at all.
+* New: `query` filter inspection in the Options and Transients section. Lists any callbacks on WordPress's `query` filter (with file and line), since code there can rewrite or block the create_lock() INSERT into wp_options — a candidate cause for a lock write that fails with no visible lock row.
 
 = 1.2.2 =
 * New: active create_lock() probe. The auto_updater.lock check now calls WP_Upgrader::create_lock('auto_updater') directly (releasing immediately if it acquires) — the exact call that gates WP_Automatic_Updater::run() — and reports the boolean. It also runs a raw INSERT IGNORE write test against wp_options (capturing $wpdb->last_error) and dumps the real object-cache state (wp_cache_get and notoptions) alongside get_option(). This converts "run() bailed at the lock" from an inference into a direct, reproducible measurement, and surfaces WHY create_lock() fails even when no lock row is visible — a blocked/filtered write versus live contention.

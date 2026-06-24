@@ -78,6 +78,11 @@ class Update_Doctor_Options_Check extends Update_Doctor_Check {
 		// write test, so we can see WHY it fails even when no lock row is visible.
 		$results[] = $this->probe_lock_acquisition();
 
+		// Callbacks on the `query` filter can rewrite or block any SQL statement —
+		// including create_lock()'s INSERT into wp_options. List them so a blocked
+		// lock write can be traced to its source.
+		$results[] = $this->inspect_query_filter();
+
 		// Per-item opt-ins.
 		$auto_plugins = get_option( 'auto_update_plugins', array() );
 		$auto_themes  = get_option( 'auto_update_themes', array() );
@@ -203,6 +208,45 @@ class Update_Doctor_Options_Check extends Update_Doctor_Check {
 			__( 'create_lock() probe: the updater can acquire its lock', 'update-doctor' ),
 			__( "WP_Upgrader::create_lock('auto_updater') succeeded on demand and was released immediately. If the live update test still bails at the lock, the cause is transient contention — another process holding the lock at the exact moment run() fires — rather than a persistently stuck lock.", 'update-doctor' ),
 			$details
+		);
+	}
+
+	/**
+	 * List callbacks on the `query` filter. A plugin that hooks it can modify or block
+	 * any SQL statement, which is one way create_lock()'s INSERT could fail with no
+	 * visible lock row.
+	 *
+	 * @return Update_Doctor_Diagnostic
+	 */
+	private function inspect_query_filter() {
+		$inspector = new Update_Doctor_Hook_Inspector();
+		$callbacks = $inspector->inspect( 'query' );
+
+		if ( empty( $callbacks ) ) {
+			return Update_Doctor_Diagnostic::pass(
+				__( 'Database query filter', 'update-doctor' ),
+				__( 'No callbacks are registered on the `query` filter, so nothing is rewriting or blocking SQL statements (including the lock INSERT).', 'update-doctor' )
+			);
+		}
+
+		$lines = array();
+		foreach ( $callbacks as $cb ) {
+			$location = $cb['file'] ? $cb['file'] . ( $cb['line'] ? ':' . $cb['line'] : '' ) : '';
+			$lines[]  = sprintf( 'priority %d — %s%s', $cb['priority'], $cb['callback_label'], $location ? ' (' . $location . ')' : '' );
+		}
+
+		return Update_Doctor_Diagnostic::warn(
+			__( 'Database query filter has callbacks', 'update-doctor' ),
+			sprintf(
+				_n(
+					'%d callback is registered on the `query` filter. Code here can rewrite or reject any SQL statement, including create_lock()\'s INSERT into wp_options — if the lock write is failing, inspect this callback.',
+					'%d callbacks are registered on the `query` filter. Code here can rewrite or reject any SQL statement, including create_lock()\'s INSERT into wp_options — if the lock write is failing, inspect these callbacks.',
+					count( $callbacks ),
+					'update-doctor'
+				),
+				count( $callbacks )
+			),
+			$lines
 		);
 	}
 }
