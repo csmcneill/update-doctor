@@ -10,8 +10,20 @@
 .update-doctor-actions {
 	margin: 16px 0 24px;
 	display: flex;
+	align-items: center;
 	gap: 8px;
 	flex-wrap: wrap;
+}
+
+/* Forms wrapping buttons must not add layout offsets of their own, so every
+   control in the row sits on the same baseline at the same height. */
+.update-doctor-actions form {
+	margin: 0;
+	display: inline-flex;
+}
+
+.update-doctor-actions .button {
+	margin: 0;
 }
 
 .update-doctor-overall p {

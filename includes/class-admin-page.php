@@ -78,7 +78,7 @@ class Update_Doctor_Admin_Page {
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline">
 					<input type="hidden" name="action" value="<?php echo esc_attr( Update_Doctor_Update_Trigger::ACTION ); ?>" />
 					<?php wp_nonce_field( Update_Doctor_Update_Trigger::ACTION, Update_Doctor_Update_Trigger::NONCE ); ?>
-					<button type="submit" class="button button-primary button-hero">
+					<button type="submit" class="button button-primary">
 						<?php esc_html_e( 'Run Live Update Test', 'update-doctor' ); ?>
 					</button>
 				</form>
@@ -95,7 +95,7 @@ class Update_Doctor_Admin_Page {
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline" id="update-doctor-clear-lock-form">
 					<input type="hidden" name="action" value="<?php echo esc_attr( Update_Doctor_Update_Trigger::CLEAR_LOCK_ACTION ); ?>" />
 					<?php wp_nonce_field( Update_Doctor_Update_Trigger::CLEAR_LOCK_ACTION, Update_Doctor_Update_Trigger::CLEAR_LOCK_NONCE ); ?>
-					<button type="button" class="button button-link-delete" id="update-doctor-clear-lock-button">
+					<button type="button" class="button" id="update-doctor-clear-lock-button">
 						<?php esc_html_e( 'Clear Stuck Update Lock', 'update-doctor' ); ?>
 					</button>
 				</form>

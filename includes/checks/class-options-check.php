@@ -74,6 +74,10 @@ class Update_Doctor_Options_Check extends Update_Doctor_Check {
 			}
 		}
 
+		// Active probe: actually exercise create_lock() the way run() does, plus a raw
+		// write test, so we can see WHY it fails even when no lock row is visible.
+		$results[] = $this->probe_lock_acquisition();
+
 		// Per-item opt-ins.
 		$auto_plugins = get_option( 'auto_update_plugins', array() );
 		$auto_themes  = get_option( 'auto_update_themes', array() );
@@ -143,5 +147,62 @@ class Update_Doctor_Options_Check extends Update_Doctor_Check {
 		}
 
 		return $results;
+	}
+
+	/**
+	 * Actively exercise WP_Upgrader::create_lock('auto_updater') — the exact call that
+	 * gates the per-item loop in WP_Automatic_Updater::run() — and report whether it
+	 * succeeds, plus the raw write/cache state that determines the outcome. This turns
+	 * "run() bailed at the lock" (an inference) into a direct, reproducible measurement,
+	 * and shows WHY create_lock() fails even when no lock row is visible.
+	 *
+	 * @return Update_Doctor_Diagnostic
+	 */
+	private function probe_lock_acquisition() {
+		global $wpdb;
+
+		if ( ! class_exists( 'WP_Upgrader' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+		}
+
+		$details = array();
+
+		// Cache state, read directly (bypassing get_option's own logic).
+		$details[] = 'get_option(): ' . var_export( get_option( 'auto_updater.lock' ), true );
+		$details[] = 'wp_cache_get(auto_updater.lock, options): ' . var_export( wp_cache_get( 'auto_updater.lock', 'options' ), true );
+		$notoptions = wp_cache_get( 'notoptions', 'options' );
+		$details[] = 'in notoptions cache: ' . ( ( is_array( $notoptions ) && isset( $notoptions['auto_updater.lock'] ) ) ? 'yes' : 'no' );
+
+		// Raw write test: can we INSERT IGNORE into wp_options at all (create_lock's mechanism)?
+		$probe_name = 'update_doctor_write_probe';
+		$wpdb->query( $wpdb->prepare( "INSERT IGNORE INTO {$wpdb->options} ( option_name, option_value, autoload ) VALUES ( %s, %s, 'no' )", $probe_name, '1' ) );
+		$write_err = $wpdb->last_error;
+		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name = %s", $probe_name ) );
+		$details[] = 'raw INSERT IGNORE write test: ' . ( $write_err ? ( 'ERROR — ' . $write_err ) : 'ok' );
+
+		// The decisive probe: actually call create_lock(), then release if it acquired.
+		$acquired = WP_Upgrader::create_lock( 'auto_updater' );
+		$lock_err = $wpdb->last_error;
+		if ( $acquired ) {
+			WP_Upgrader::release_lock( 'auto_updater' );
+		}
+		$details[] = "WP_Upgrader::create_lock('auto_updater') returned: " . ( $acquired ? 'true (acquired — released immediately)' : 'FALSE (could not acquire)' );
+		if ( $lock_err ) {
+			$details[] = 'create_lock SQL error: ' . $lock_err;
+		}
+
+		if ( ! $acquired ) {
+			return Update_Doctor_Diagnostic::fail(
+				__( 'create_lock() probe: the updater cannot acquire its lock', 'update-doctor' ),
+				__( "Update Doctor called WP_Upgrader::create_lock('auto_updater') directly and it returned false — the same call that gates the per-item loop in WP_Automatic_Updater::run(). This reproduces the stall in isolation, so it is not a one-off timing collision. The details below show why: if the raw INSERT IGNORE write test errored, something is rejecting the lock write (a query filter from a security/host plugin, or a database write restriction). If the write test is ok yet create_lock still fails, a lock row is present at the instant of the call even though get_option reports none — inspect the cache values and SQL error above.", 'update-doctor' ),
+				$details
+			);
+		}
+
+		return Update_Doctor_Diagnostic::pass(
+			__( 'create_lock() probe: the updater can acquire its lock', 'update-doctor' ),
+			__( "WP_Upgrader::create_lock('auto_updater') succeeded on demand and was released immediately. If the live update test still bails at the lock, the cause is transient contention — another process holding the lock at the exact moment run() fires — rather than a persistently stuck lock.", 'update-doctor' ),
+			$details
+		);
 	}
 }
