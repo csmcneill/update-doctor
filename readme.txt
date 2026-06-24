@@ -4,7 +4,7 @@ Tags: updates, automatic updates, diagnostics, troubleshooting, maintenance
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.2.3
+Stable tag: 1.2.4
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,12 @@ Email notifications add a side-effect that some site owners may not want (for ex
 WordPress core has sent auto-update result emails since 5.5. Update Doctor's email is additive: it covers silent skips (which core does not email about) and gives you a uniform "open the diagnostic page" call to action. You may receive both emails if you enable Update Doctor's notifications.
 
 == Changelog ==
+
+= 1.2.4 =
+* New: "Run Unattended Test" — runs the auto-updater with wp_doing_cron forced true, to mimic a scheduled run as closely as a web request can. Its activity is tagged [emulated] (never [scheduled]) so it never masquerades as a real platform run in the Activity Log. Comparing it against "Run Update Test" is itself diagnostic: if the emulated run behaves differently from the plain web run, request-context gating is implicated.
+* New: "Run via WP-CLI" callout. A modal shows the exact WP-CLI command that runs the updater in a separate command-line process — the closest in-reach approximation of how most hosts schedule unattended updates — with a one-click copy. The truest path is a real CLI/platform process, which a web-request plugin cannot reproduce, so this hands the user the command to run it for real.
+* Change: "Run Live Update Test" renamed to "Run Update Test" and reframed honestly as a web-context apply test. The action-row help text now explains the three paths (web, emulated cron, WP-CLI) and notes the Activity Log is the source of truth for real scheduled runs.
+* Refactor: the run-and-capture instrumentation is shared between the manual and emulated triggers, and the modal/copy JS is now a small generic framework (data-modal-target / data-modal-close / data-copy).
 
 = 1.2.3 =
 * New: passive Auto-Update Activity Log. A recorder registered on every request (including WP-Cron) captures real auto-update events as they happen — item attempts (pre_auto_update), completed upgrades, batch results, and lock acquire/release — and tags each as [scheduled] or [manual]. The new Auto-Update Activity Log check displays them. This finally observes what the host's own scheduled updater does, rather than relying on the manual Run Live Update Test. If [scheduled] attempts/upgrades appear, the platform updater is reaching the update process and any remaining stalls are per-item; if only [manual] events ever appear, the scheduled updater is not invoking WordPress's auto-updater on the site at all.

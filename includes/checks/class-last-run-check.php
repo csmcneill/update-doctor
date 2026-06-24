@@ -47,8 +47,14 @@ class Update_Doctor_Last_Run_Check extends Update_Doctor_Check {
 		$run_data = isset( $payload['results'] ) ? $payload['results'] : array();
 		$errors   = isset( $payload['errors'] ) && is_array( $payload['errors'] ) ? $payload['errors'] : array();
 
+		$kind_labels = array(
+			'manual'    => __( 'manual trigger via Update Doctor (web context)', 'update-doctor' ),
+			'emulated'  => __( 'unattended emulation via Update Doctor (web request, wp_doing_cron forced true)', 'update-doctor' ),
+		);
+		$kind_label  = isset( $kind_labels[ $kind ] ) ? $kind_labels[ $kind ] : __( 'automatic update run', 'update-doctor' );
+
 		$header_details = array(
-			sprintf( __( 'kind: %s', 'update-doctor' ), 'manual' === $kind ? __( 'manual trigger via Update Doctor', 'update-doctor' ) : __( 'automatic update run', 'update-doctor' ) ),
+			sprintf( __( 'kind: %s', 'update-doctor' ), $kind_label ),
 			sprintf( __( 'age: %s ago', 'update-doctor' ), human_time_diff( time() - $age, time() ) ),
 		);
 

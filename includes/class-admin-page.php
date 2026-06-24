@@ -79,9 +79,21 @@ class Update_Doctor_Admin_Page {
 					<input type="hidden" name="action" value="<?php echo esc_attr( Update_Doctor_Update_Trigger::ACTION ); ?>" />
 					<?php wp_nonce_field( Update_Doctor_Update_Trigger::ACTION, Update_Doctor_Update_Trigger::NONCE ); ?>
 					<button type="submit" class="button button-primary">
-						<?php esc_html_e( 'Run Live Update Test', 'update-doctor' ); ?>
+						<?php esc_html_e( 'Run Update Test', 'update-doctor' ); ?>
 					</button>
 				</form>
+
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline">
+					<input type="hidden" name="action" value="<?php echo esc_attr( Update_Doctor_Update_Trigger::EMULATE_ACTION ); ?>" />
+					<?php wp_nonce_field( Update_Doctor_Update_Trigger::EMULATE_ACTION, Update_Doctor_Update_Trigger::EMULATE_NONCE ); ?>
+					<button type="submit" class="button">
+						<?php esc_html_e( 'Run Unattended Test', 'update-doctor' ); ?>
+					</button>
+				</form>
+
+				<button type="button" class="button" data-modal-target="#update-doctor-wpcli-modal">
+					<?php esc_html_e( 'Run via WP-CLI', 'update-doctor' ); ?>
+				</button>
 
 				<a href="<?php echo esc_url( admin_url( 'tools.php?page=' . self::SLUG ) ); ?>" class="button">
 					<?php esc_html_e( 'Re-run Diagnostics', 'update-doctor' ); ?>
@@ -95,17 +107,18 @@ class Update_Doctor_Admin_Page {
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline" id="update-doctor-clear-lock-form">
 					<input type="hidden" name="action" value="<?php echo esc_attr( Update_Doctor_Update_Trigger::CLEAR_LOCK_ACTION ); ?>" />
 					<?php wp_nonce_field( Update_Doctor_Update_Trigger::CLEAR_LOCK_ACTION, Update_Doctor_Update_Trigger::CLEAR_LOCK_NONCE ); ?>
-					<button type="button" class="button" id="update-doctor-clear-lock-button">
+					<button type="button" class="button" id="update-doctor-clear-lock-button" data-modal-target="#update-doctor-clear-lock-modal">
 						<?php esc_html_e( 'Clear Stuck Update Lock', 'update-doctor' ); ?>
 					</button>
 				</form>
 			</div>
 
 			<p class="update-doctor-actions-help description">
-				<?php esc_html_e( '"Run Live Update Test" calls WordPress\'s automatic-update process directly, applies any pending updates, and captures the output (including PHP errors) into the diagnostic. "Clear Stuck Update Lock" deletes the auto_updater.lock option from the database — only needed when the Options and Transients section reports a stuck or cache-masked lock.', 'update-doctor' ); ?>
+				<?php esc_html_e( '"Run Update Test" runs WordPress\'s auto-updater in this web request. "Run Unattended Test" does the same but mimics a cron run (wp_doing_cron forced true) — still a web request, so it cannot fully reproduce a real scheduled run. The truest test is "Run via WP-CLI", which runs the updater in a separate command-line process, the way most hosts schedule it. The Auto-Update Activity Log below records whichever path you use, plus the host\'s own scheduled runs. "Clear Stuck Update Lock" deletes the auto_updater.lock option — only needed when the Options section reports a stuck lock.', 'update-doctor' ); ?>
 			</p>
 
 			<?php $this->render_clear_lock_modal(); ?>
+			<?php $this->render_wpcli_modal(); ?>
 
 			<?php if ( ! empty( $_GET['doctor_lock'] ) ) : ?>
 				<?php $this->render_lock_cleared(); ?>
@@ -151,8 +164,31 @@ class Update_Doctor_Admin_Page {
 					<?php esc_html_e( 'This is safe when the lock is stale: the lock is meant to be temporary, and a legitimate in-progress update would re-create it on the next run. Only proceed if the Options and Transients section reports a stuck or cache-masked lock.', 'update-doctor' ); ?>
 				</p>
 				<div class="update-doctor-modal-actions">
-					<button type="button" class="button" id="update-doctor-modal-cancel"><?php esc_html_e( 'Cancel', 'update-doctor' ); ?></button>
+					<button type="button" class="button" data-modal-close><?php esc_html_e( 'Cancel', 'update-doctor' ); ?></button>
 					<button type="button" class="button button-primary" id="update-doctor-modal-confirm"><?php esc_html_e( 'Clear the lock', 'update-doctor' ); ?></button>
+				</div>
+			</div>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Informational modal showing the WP-CLI command that runs the updater in a real
+	 * command-line process — the closest thing to how most hosts schedule auto-updates.
+	 */
+	private function render_wpcli_modal() {
+		$command = "wp eval 'require_once ABSPATH . \"wp-admin/includes/class-wp-upgrader.php\"; require_once ABSPATH . \"wp-admin/includes/class-wp-automatic-updater.php\"; ( new WP_Automatic_Updater() )->run();'";
+		?>
+		<div class="update-doctor-modal-overlay" id="update-doctor-wpcli-modal" hidden>
+			<div class="update-doctor-modal" role="dialog" aria-modal="true" aria-labelledby="update-doctor-wpcli-title">
+				<h2 id="update-doctor-wpcli-title"><?php esc_html_e( 'Run the updater via WP-CLI', 'update-doctor' ); ?></h2>
+				<p>
+					<?php esc_html_e( 'This runs WordPress\'s auto-updater in a separate command-line process, the way most hosts schedule it — closer to a real unattended run than anything triggered from this page. Run it over SSH or your host\'s WP-CLI console. The Auto-Update Activity Log will record the result, tagged [scheduled].', 'update-doctor' ); ?>
+				</p>
+				<pre class="update-doctor-pre" id="update-doctor-wpcli-command"><?php echo esc_html( $command ); ?></pre>
+				<div class="update-doctor-modal-actions">
+					<button type="button" class="button" data-copy="<?php echo esc_attr( $command ); ?>"><?php esc_html_e( 'Copy command', 'update-doctor' ); ?></button>
+					<button type="button" class="button button-primary" data-modal-close><?php esc_html_e( 'Done', 'update-doctor' ); ?></button>
 				</div>
 			</div>
 		</div>

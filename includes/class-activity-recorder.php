@@ -33,7 +33,15 @@ class Update_Doctor_Activity_Recorder {
 	 * otherwise (a real WP-Cron / platform-initiated run).
 	 */
 	private function context() {
-		return ( class_exists( 'Update_Doctor_Update_Trigger' ) && Update_Doctor_Update_Trigger::$manual_run ) ? 'manual' : 'scheduled';
+		if ( class_exists( 'Update_Doctor_Update_Trigger' ) ) {
+			if ( Update_Doctor_Update_Trigger::$manual_run ) {
+				return 'manual';
+			}
+			if ( Update_Doctor_Update_Trigger::$emulated_run ) {
+				return 'emulated';
+			}
+		}
+		return 'scheduled';
 	}
 
 	private function record( $event, $detail = '' ) {

@@ -96,7 +96,9 @@ class Update_Doctor_Failure_Monitor {
 	 * Inspect the results array after a batch of auto-updates.
 	 */
 	public function on_complete( $results ) {
-		if ( Update_Doctor_Update_Trigger::$manual_run ) {
+		// Skip notifications for runs Update Doctor itself initiated (manual or emulated);
+		// only real scheduled runs should alert.
+		if ( Update_Doctor_Update_Trigger::$manual_run || Update_Doctor_Update_Trigger::$emulated_run ) {
 			return;
 		}
 
