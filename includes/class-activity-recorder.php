@@ -19,6 +19,15 @@ class Update_Doctor_Activity_Recorder {
 	const OPTION = 'update_doctor_activity_log';
 	const MAX    = 200;
 
+	/**
+	 * Set true while Update Doctor's own diagnostics touch the lock (the create_lock()
+	 * probe), so those synthetic acquire/release events are not recorded as if they
+	 * were real update runs.
+	 *
+	 * @var bool
+	 */
+	public static $suppress_recording = false;
+
 	public function register() {
 		add_action( 'pre_auto_update', array( $this, 'on_pre_auto_update' ), 10, 3 );
 		add_action( 'automatic_updates_complete', array( $this, 'on_auto_complete' ), 11, 1 );
@@ -45,6 +54,11 @@ class Update_Doctor_Activity_Recorder {
 	}
 
 	private function record( $event, $detail = '' ) {
+		// Ignore lock churn caused by our own create_lock() probe — it runs on every
+		// page render and would otherwise masquerade as real [scheduled] activity.
+		if ( self::$suppress_recording ) {
+			return;
+		}
 		$log = get_option( self::OPTION, array() );
 		if ( ! is_array( $log ) ) {
 			$log = array();

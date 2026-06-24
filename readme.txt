@@ -4,7 +4,7 @@ Tags: updates, automatic updates, diagnostics, troubleshooting, maintenance
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.2.4
+Stable tag: 1.2.5
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,11 @@ Email notifications add a side-effect that some site owners may not want (for ex
 WordPress core has sent auto-update result emails since 5.5. Update Doctor's email is additive: it covers silent skips (which core does not email about) and gives you a uniform "open the diagnostic page" call to action. You may receive both emails if you enable Update Doctor's notifications.
 
 == Changelog ==
+
+= 1.2.5 =
+* Fix: the Auto-Update Activity Log no longer records phantom [scheduled] lock events. The create_lock() probe (which exercises the lock on every page render to test whether the updater can acquire it) was being caught by the passive recorder and logged as if a real scheduled run had touched the lock — which also produced a false "Scheduled runner touches the lock but no item attempts seen" warning. The recorder now suppresses its own diagnostic lock churn.
+* Fix: run-context tagging could leak across requests. The [manual]/[emulated] flags are static, and PHP-FPM workers reuse a process across requests; if an earlier run died before its reset (an uncatchable fatal or timeout), the stale flag survived and mis-tagged the next run — including, worst case, a real scheduled run shown as [manual], hiding genuine platform activity. The flags are now cleared at the start of every run and on shutdown, so a run is tagged by what it actually is.
+* Fix: the Last Update Attempt check now names the "unattended emulation" run kind explicitly instead of labeling it "automatic update run".
 
 = 1.2.4 =
 * New: "Run Unattended Test" — runs the auto-updater with wp_doing_cron forced true, to mimic a scheduled run as closely as a web request can. Its activity is tagged [emulated] (never [scheduled]) so it never masquerades as a real platform run in the Activity Log. Comparing it against "Run Update Test" is itself diagnostic: if the emulated run behaves differently from the plain web run, request-context gating is implicated.

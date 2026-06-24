@@ -143,6 +143,22 @@ class Update_Doctor_Update_Trigger {
 	 * @return array
 	 */
 	private function capture_run( $kind ) {
+		// Defensive reset. $manual_run / $emulated_run are static, and PHP-FPM workers
+		// persist statics across requests. If an earlier run on this worker died before
+		// its end-of-run reset (an uncatchable fatal or timeout escapes the try/catch
+		// below), a stale flag would survive into this request and mis-tag the run —
+		// and, worse, mis-tag a real scheduled run that later reuses the worker as
+		// [manual]/[emulated], hiding genuine platform activity. Clear both here, and
+		// register a shutdown reset so a death mid-run cannot leak into the next request.
+		self::$manual_run   = false;
+		self::$emulated_run = false;
+		register_shutdown_function(
+			static function () {
+				self::$manual_run   = false;
+				self::$emulated_run = false;
+			}
+		);
+
 		// Capture results from the auto-updater.
 		$results_buffer = array();
 		add_action(

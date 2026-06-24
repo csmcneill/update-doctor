@@ -186,10 +186,18 @@ class Update_Doctor_Options_Check extends Update_Doctor_Check {
 		$details[] = 'raw INSERT IGNORE write test: ' . ( $write_err ? ( 'ERROR — ' . $write_err ) : 'ok' );
 
 		// The decisive probe: actually call create_lock(), then release if it acquired.
+		// Suppress the activity recorder around it: this acquire/release is our own
+		// diagnostic, not a real update run, and must not pollute the activity log.
+		if ( class_exists( 'Update_Doctor_Activity_Recorder' ) ) {
+			Update_Doctor_Activity_Recorder::$suppress_recording = true;
+		}
 		$acquired = WP_Upgrader::create_lock( 'auto_updater' );
 		$lock_err = $wpdb->last_error;
 		if ( $acquired ) {
 			WP_Upgrader::release_lock( 'auto_updater' );
+		}
+		if ( class_exists( 'Update_Doctor_Activity_Recorder' ) ) {
+			Update_Doctor_Activity_Recorder::$suppress_recording = false;
 		}
 		$details[] = "WP_Upgrader::create_lock('auto_updater') returned: " . ( $acquired ? 'true (acquired — released immediately)' : 'FALSE (could not acquire)' );
 		if ( $lock_err ) {
