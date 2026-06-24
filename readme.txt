@@ -4,7 +4,7 @@ Tags: updates, automatic updates, diagnostics, troubleshooting, maintenance
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.2.0
+Stable tag: 1.2.1
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,9 @@ Email notifications add a side-effect that some site owners may not want (for ex
 WordPress core has sent auto-update result emails since 5.5. Update Doctor's email is additive: it covers silent skips (which core does not email about) and gives you a uniform "open the diagnostic page" call to action. You may receive both emails if you enable Update Doctor's notifications.
 
 == Changelog ==
+
+= 1.2.1 =
+* Fix: the "Clear Stuck Update Lock" confirmation modal showed on page load and ignored Cancel. The overlay's `display: flex` rule overrode the HTML `hidden` attribute (an author `display` declaration beats the UA stylesheet's `display:none` that `hidden` relies on), so toggling `hidden` had no effect. Added an attribute-qualified `.update-doctor-modal-overlay[hidden] { display: none; }` rule, which has higher specificity than the bare class and reliably hides the overlay until the button is clicked. The version bump also cache-busts the stylesheet so the fix loads.
 
 = 1.2.0 =
 * New: cache-masked stale lock detection. The auto_updater.lock check now reads the database directly (via $wpdb) and compares it against get_option(). On a persistent object cache, a stale lock row can be invisible to get_option() — and to every UI — while still blocking every automatic update, because WP_Upgrader::create_lock() reads the row with raw SQL that bypasses the cache. When the database has a lock row but the cache reports none, this is flagged as the likely root cause. This is the condition that can make auto-updates silently fail for months and survive a host migration (the row travels with the database).

@@ -127,6 +127,16 @@
 	z-index: 100000;
 }
 
+/*
+ * The `hidden` attribute hides via the UA stylesheet's display:none, which an
+ * author `display: flex` rule would override — so the overlay would show on load
+ * and ignore Cancel. This attribute-qualified rule has higher specificity than the
+ * bare class, so `hidden` reliably hides the overlay.
+ */
+.update-doctor-modal-overlay[hidden] {
+	display: none;
+}
+
 .update-doctor-modal {
 	background: #fff;
 	border-radius: 6px;
