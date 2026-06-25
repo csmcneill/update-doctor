@@ -225,7 +225,7 @@ class Update_Doctor_Cron_Check extends Update_Doctor_Check {
 
 		return Update_Doctor_Diagnostic::info(
 			__( 'wp-cron.php reachability', 'update-doctor' ),
-			__( 'WordPress fires cron events on traffic. If your site is rarely visited, cron may run irregularly. Use the "Run Background Update Now" button below to trigger an update on demand.', 'update-doctor' )
+			__( 'WordPress fires cron events on traffic. If your site is rarely visited, cron may run irregularly. Use the "Manual Update Test" button above to trigger an update on demand.', 'update-doctor' )
 		);
 	}
 }

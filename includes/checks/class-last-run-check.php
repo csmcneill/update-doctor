@@ -2,7 +2,7 @@
 /**
  * Surfaces the results of the most recent update attempt — manual or automatic.
  *
- * If the user has clicked "Run Background Update Now," or if WordPress's
+ * If the user has clicked "Manual Update Test," or if WordPress's
  * automatic_updates_complete action has fired since this plugin was installed,
  * Update Doctor stores the results, output, and any captured PHP errors in
  * a transient. This check reads that transient and reports prominently.
@@ -30,7 +30,7 @@ class Update_Doctor_Last_Run_Check extends Update_Doctor_Check {
 	}
 
 	public function description() {
-		return __( 'Reports the result of the most recent update attempt — whether triggered manually via the "Run Background Update Now" button or automatically by WordPress.', 'update-doctor' );
+		return __( 'Reports the result of the most recent update attempt — whether triggered manually via the "Manual Update Test" button or automatically by WordPress.', 'update-doctor' );
 	}
 
 	public function run() {
@@ -511,7 +511,7 @@ class Update_Doctor_Last_Run_Check extends Update_Doctor_Check {
 				Update_Doctor_Diagnostic::warn(
 					__( 'No recent update attempt captured', 'update-doctor' ),
 					sprintf(
-						__( '%d updates are pending and Update Doctor has no record of a recent update run on this site. Click "Run Background Update Now" above to trigger a live attempt and capture the results — this is the best way to diagnose why pending updates are not applying.', 'update-doctor' ),
+						__( '%d updates are pending and Update Doctor has no record of a recent update run on this site. Click "Manual Update Test" above to trigger a live attempt and capture the results — this is the best way to diagnose why pending updates are not applying.', 'update-doctor' ),
 						$pending
 					)
 				),

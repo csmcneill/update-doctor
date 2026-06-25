@@ -119,6 +119,12 @@ class Update_Doctor_Activity_Recorder {
 		if ( ! empty( $hook_extra['themes'] ) ) {
 			$items = array_merge( $items, (array) $hook_extra['themes'] );
 		}
+		// Single-theme auto-updates set 'theme' (singular) — the theme analogue of the
+		// 'plugin' key handled above. Without this, a scheduled single-theme upgrade was
+		// logged as "theme: (unknown)".
+		if ( ! empty( $hook_extra['theme'] ) ) {
+			$items[] = $hook_extra['theme'];
+		}
 		$type = isset( $hook_extra['type'] ) ? $hook_extra['type'] : 'item';
 		$this->record( 'upgraded', $type . ': ' . ( $items ? implode( ', ', $items ) : '(unknown)' ) );
 	}

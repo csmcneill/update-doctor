@@ -4,7 +4,7 @@ Tags: updates, automatic updates, diagnostics, troubleshooting, maintenance
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.2.6
+Stable tag: 1.2.7
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,10 @@ Email notifications add a side-effect that some site owners may not want (for ex
 WordPress core has sent auto-update result emails since 5.5. Update Doctor's email is additive: it covers silent skips (which core does not email about) and gives you a uniform "open the diagnostic page" call to action. You may receive both emails if you enable Update Doctor's notifications.
 
 == Changelog ==
+
+= 1.2.7 =
+* Fix: the activity log recorded single-theme scheduled upgrades as "theme: (unknown)". The recorder read the bulk 'themes' key from upgrader_process_complete but not the singular 'theme' key that a single-theme auto-update sets (the plugin side already handled both). Theme names now record correctly.
+* Fix: replaced stale "Run Background Update Now" button-name references (an old label that no longer exists) with "Manual Update Test" across the Last Update Attempt and Cron sections.
 
 = 1.2.6 =
 * New: PHP OPcache check. Surfaces opcache.enable / validate_timestamps / revalidate_freq / restrict_api and warns when timestamps are not validated — the case where updated plugin, theme, and core files keep running stale bytecode until the host's cache is cleared, so an update installs but appears to do nothing. Reads the values via ini_get() so it works even where restrict_api locks the opcache_*() API.
