@@ -11,8 +11,66 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Update_Doctor_Options_Check extends Update_Doctor_Check {
 
+	/** @var array|null Per-request cache of the lock-state probe. */
+	private static $lock_state_cache = null;
+
 	public function id() {
 		return 'options';
+	}
+
+	/**
+	 * Determine whether an abnormal auto_updater.lock is present — either stale (older
+	 * than WordPress's one-hour lock TTL) or cache-masked (a DB row the object cache
+	 * hides from get_option()). Shared by this check's verdict and the admin page's
+	 * decision to show the "Clear Stuck Update Lock" button, so the report and the
+	 * button can never disagree. Memoised for the request.
+	 *
+	 * @return array {
+	 *     @type bool        $stuck       Stale or masked lock present (show the button).
+	 *     @type bool        $masked      DB row present but object cache reports none.
+	 *     @type bool        $stale       Lock present and older than the TTL.
+	 *     @type bool        $db_has      A lock row exists in the database.
+	 *     @type bool        $cache_has   get_option() reports a lock.
+	 *     @type string|null $db_value    Raw database value (or null).
+	 *     @type mixed       $cache_value get_option() value.
+	 *     @type int         $lock_ts     Best available lock timestamp (0 if none).
+	 *     @type int|null    $age         Seconds since $lock_ts (null if no lock).
+	 * }
+	 */
+	public static function detect_stuck_lock() {
+		if ( null !== self::$lock_state_cache ) {
+			return self::$lock_state_cache;
+		}
+
+		global $wpdb;
+		$cache     = get_option( 'auto_updater.lock' );
+		$db_value  = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", 'auto_updater.lock' ) );
+		$db_has    = ( null !== $db_value );
+		$cache_has = ! empty( $cache );
+
+		$lock_ts = 0;
+		if ( $db_has && is_numeric( $db_value ) ) {
+			$lock_ts = (int) $db_value;
+		} elseif ( $cache_has && is_numeric( $cache ) ) {
+			$lock_ts = (int) $cache;
+		}
+		$age = $lock_ts ? ( time() - $lock_ts ) : null;
+
+		$masked = ( $db_has && ! $cache_has );
+		$stale  = ( ( $db_has || $cache_has ) && null !== $age && $age > HOUR_IN_SECONDS );
+
+		self::$lock_state_cache = array(
+			'stuck'       => ( $masked || $stale ),
+			'masked'      => $masked,
+			'stale'       => $stale,
+			'db_has'      => $db_has,
+			'cache_has'   => $cache_has,
+			'db_value'    => $db_value,
+			'cache_value' => $cache,
+			'lock_ts'     => $lock_ts,
+			'age'         => $age,
+		);
+		return self::$lock_state_cache;
 	}
 
 	public function label() {
@@ -32,46 +90,38 @@ class Update_Doctor_Options_Check extends Update_Doctor_Check {
 		// object cache, while get_option() reads the cache. On a persistent object cache a
 		// stale row can therefore be INVISIBLE to get_option() yet still block every run
 		// (create_lock() sees the DB row, returns false, and bails before should_update).
-		// So we compare the cached value against the database directly.
-		global $wpdb;
-		$lock     = get_option( 'auto_updater.lock' );
-		$lock_db  = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", 'auto_updater.lock' ) );
-		$db_has   = ( null !== $lock_db );
-		$cache_has = ! empty( $lock );
+		// detect_stuck_lock() compares the cached value against the database directly; the
+		// admin page reads the same result to decide whether to show the clear button.
+		$lock = self::detect_stuck_lock();
 
-		if ( $db_has && ! $cache_has ) {
+		if ( $lock['masked'] ) {
 			// The masked stale lock — the smoking gun.
 			$results[] = Update_Doctor_Diagnostic::fail(
 				'auto_updater.lock',
 				sprintf(
-					__( 'A stale auto_updater.lock row exists in the database (value: %1$s, age: %2$s) but the object cache reports NO lock. This is the trap: WP_Upgrader::create_lock() reads the database row and bails, so automatic updates silently never run — while get_option() (and every UI) reads the cache and shows nothing wrong. It does not self-heal because the cache hides the row from the expiry path. This is almost certainly the root cause. Use the "Clear stuck update lock" button at the top of the page to remove it (or run: wp option delete auto_updater.lock).', 'update-doctor' ),
-					(string) $lock_db,
-					is_numeric( $lock_db ) ? human_time_diff( (int) $lock_db, $now ) : __( 'unknown', 'update-doctor' )
+					__( 'A stale auto_updater.lock row exists in the database (value: %1$s, age: %2$s) but the object cache reports NO lock. This is the trap: WP_Upgrader::create_lock() reads the database row and bails, so automatic updates silently never run — while get_option() (and every UI) reads the cache and shows nothing wrong. It does not self-heal because the cache hides the row from the expiry path. This is almost certainly the root cause. Use the "Clear Stuck Update Lock" button at the top of the page to remove it (or run: wp option delete auto_updater.lock).', 'update-doctor' ),
+					(string) $lock['db_value'],
+					is_numeric( $lock['db_value'] ) ? human_time_diff( (int) $lock['db_value'], $now ) : __( 'unknown', 'update-doctor' )
 				)
 			);
-		} elseif ( ! $db_has && ! $cache_has ) {
+		} elseif ( ! $lock['db_has'] && ! $lock['cache_has'] ) {
 			$results[] = Update_Doctor_Diagnostic::pass(
 				'auto_updater.lock',
 				__( 'No active auto-update lock in either the database or the cache. New updates can begin.', 'update-doctor' )
 			);
+		} elseif ( $lock['stale'] ) {
+			$results[] = Update_Doctor_Diagnostic::fail(
+				'auto_updater.lock',
+				sprintf(
+					__( 'Lock has been held for %s. This is almost certainly stale and is preventing new auto-update runs. Use the "Clear Stuck Update Lock" button at the top of the page, or run: wp option delete auto_updater.lock.', 'update-doctor' ),
+					human_time_diff( $lock['lock_ts'], $now )
+				)
+			);
 		} else {
-			// Lock present (in DB and/or cache). Use the DB value for age when available.
-			$lock_ts = $db_has && is_numeric( $lock_db ) ? (int) $lock_db : (int) $lock;
-			$age     = $now - $lock_ts;
-			if ( $age > HOUR_IN_SECONDS ) {
-				$results[] = Update_Doctor_Diagnostic::fail(
-					'auto_updater.lock',
-					sprintf(
-						__( 'Lock has been held for %s. This is almost certainly stale and is preventing new auto-update runs. Use the "Clear stuck update lock" button at the top of the page, or run: wp option delete auto_updater.lock.', 'update-doctor' ),
-						human_time_diff( $lock_ts, $now )
-					)
-				);
-			} else {
-				$results[] = Update_Doctor_Diagnostic::info(
-					'auto_updater.lock',
-					sprintf( __( 'An auto-update is currently running (lock age: %s).', 'update-doctor' ), human_time_diff( $lock_ts, $now ) )
-				);
-			}
+			$results[] = Update_Doctor_Diagnostic::info(
+				'auto_updater.lock',
+				sprintf( __( 'An auto-update is currently running (lock age: %s).', 'update-doctor' ), human_time_diff( $lock['lock_ts'], $now ) )
+			);
 		}
 
 		// Active probe: actually exercise create_lock() the way run() does, plus a raw
@@ -214,7 +264,7 @@ class Update_Doctor_Options_Check extends Update_Doctor_Check {
 
 		return Update_Doctor_Diagnostic::pass(
 			__( 'create_lock() probe: the updater can acquire its lock', 'update-doctor' ),
-			__( "WP_Upgrader::create_lock('auto_updater') succeeded on demand and was released immediately. If the live update test still bails at the lock, the cause is transient contention — another process holding the lock at the exact moment run() fires — rather than a persistently stuck lock.", 'update-doctor' ),
+			__( "WP_Upgrader::create_lock('auto_updater') succeeded on demand and was released immediately. If the Manual Update Test still bails at the lock, the cause is transient contention — another process holding the lock at the exact moment run() fires — rather than a persistently stuck lock.", 'update-doctor' ),
 			$details
 		);
 	}

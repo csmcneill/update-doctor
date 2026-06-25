@@ -38,17 +38,12 @@ class Update_Doctor_Activity_Recorder {
 	}
 
 	/**
-	 * "manual" when the event happens inside Update Doctor's own trigger; "scheduled"
-	 * otherwise (a real WP-Cron / platform-initiated run).
+	 * "manual" when the event happens inside Update Doctor's own Manual Update Test;
+	 * "scheduled" otherwise (a real WP-Cron / WP-CLI / platform-initiated run).
 	 */
 	private function context() {
-		if ( class_exists( 'Update_Doctor_Update_Trigger' ) ) {
-			if ( Update_Doctor_Update_Trigger::$manual_run ) {
-				return 'manual';
-			}
-			if ( Update_Doctor_Update_Trigger::$emulated_run ) {
-				return 'emulated';
-			}
+		if ( class_exists( 'Update_Doctor_Update_Trigger' ) && Update_Doctor_Update_Trigger::$manual_run ) {
+			return 'manual';
 		}
 		return 'scheduled';
 	}

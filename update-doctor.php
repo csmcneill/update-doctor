@@ -3,7 +3,7 @@
  * Plugin Name: Update Doctor
  * Plugin URI: https://github.com/csmcneill/update-doctor
  * Description: Diagnoses why WordPress automatic updates aren't running. Inspects constants, filter callbacks, cron, filesystem, options, and per-item state, and produces a plain-language report you can hand to your host's support.
- * Version: 1.2.5
+ * Version: 1.2.6
  * Requires at least: 5.5
  * Requires PHP: 7.4
  * Author: Chris McNeill
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'UPDATE_DOCTOR_VERSION', '1.2.5' );
+define( 'UPDATE_DOCTOR_VERSION', '1.2.6' );
 define( 'UPDATE_DOCTOR_FILE', __FILE__ );
 define( 'UPDATE_DOCTOR_DIR', plugin_dir_path( __FILE__ ) );
 define( 'UPDATE_DOCTOR_URL', plugin_dir_url( __FILE__ ) );
@@ -38,6 +38,7 @@ require_once UPDATE_DOCTOR_DIR . 'includes/checks/class-constants-check.php';
 require_once UPDATE_DOCTOR_DIR . 'includes/checks/class-filters-check.php';
 require_once UPDATE_DOCTOR_DIR . 'includes/checks/class-cron-check.php';
 require_once UPDATE_DOCTOR_DIR . 'includes/checks/class-filesystem-check.php';
+require_once UPDATE_DOCTOR_DIR . 'includes/checks/class-opcache-check.php';
 require_once UPDATE_DOCTOR_DIR . 'includes/checks/class-unattended-gate-check.php';
 require_once UPDATE_DOCTOR_DIR . 'includes/checks/class-options-check.php';
 require_once UPDATE_DOCTOR_DIR . 'includes/checks/class-per-item-check.php';

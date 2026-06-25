@@ -24,7 +24,7 @@ class Update_Doctor_Activity_Check extends Update_Doctor_Check {
 	}
 
 	public function description() {
-		return __( "Every real auto-update event — scheduled or manual — is recorded here as it happens. Events tagged [scheduled] come from the host's own update runner (WP-Cron or platform), not from the Run Live Update Test button. This shows whether the scheduled updater is actually running.", 'update-doctor' );
+		return __( "Every real auto-update event — scheduled or manual — is recorded here as it happens. Events tagged [scheduled] come from the host's own update runner (WP-Cron or platform), not from the Manual Update Test button. This shows whether the scheduled updater is actually running.", 'update-doctor' );
 	}
 
 	public function run() {

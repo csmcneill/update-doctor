@@ -4,7 +4,7 @@ Tags: updates, automatic updates, diagnostics, troubleshooting, maintenance
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.2.5
+Stable tag: 1.2.6
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,12 @@ Email notifications add a side-effect that some site owners may not want (for ex
 WordPress core has sent auto-update result emails since 5.5. Update Doctor's email is additive: it covers silent skips (which core does not email about) and gives you a uniform "open the diagnostic page" call to action. You may receive both emails if you enable Update Doctor's notifications.
 
 == Changelog ==
+
+= 1.2.6 =
+* New: PHP OPcache check. Surfaces opcache.enable / validate_timestamps / revalidate_freq / restrict_api and warns when timestamps are not validated — the case where updated plugin, theme, and core files keep running stale bytecode until the host's cache is cleared, so an update installs but appears to do nothing. Reads the values via ini_get() so it works even where restrict_api locks the opcache_*() API.
+* Change: removed the "Run Unattended Test" button. Its in-request cron emulation could never reproduce a real scheduled run (it is still a web request), so it gave a false sense of testing the thing that matters. The genuine test is "Run via WP-CLI" (a separate command-line process), and the Auto-Update Activity Log captures the host's real [scheduled] runs.
+* Change: "Run Update Test" renamed to "Manual Update Test", pairing it with the [manual] tag in the Activity Log and contrasting cleanly with the WP-CLI path.
+* Change: "Clear Stuck Update Lock" now appears only when Update Doctor actually detects a stuck lock — one that is stale (older than WordPress's one-hour lock TTL) or cache-masked (a database row hidden from the object cache). A destructive, irreversible delete should never be a standing button; gating it prevents clearing a lock that a legitimate in-progress update is holding. The report verdict and the button share one detector, so they always agree.
 
 = 1.2.5 =
 * Fix: the Auto-Update Activity Log no longer records phantom [scheduled] lock events. The create_lock() probe (which exercises the lock on every page render to test whether the updater can acquire it) was being caught by the passive recorder and logged as if a real scheduled run had touched the lock — which also produced a false "Scheduled runner touches the lock but no item attempts seen" warning. The recorder now suppresses its own diagnostic lock churn.

@@ -17,29 +17,17 @@ class Update_Doctor_Update_Trigger {
 	const CLEAR_LOCK_ACTION = 'update_doctor_clear_lock';
 	const CLEAR_LOCK_NONCE  = 'update_doctor_clear_lock_nonce';
 
-	const EMULATE_ACTION = 'update_doctor_emulate_update';
-	const EMULATE_NONCE  = 'update_doctor_emulate_update_nonce';
-
 	/**
 	 * Marker used by the failure monitor and activity recorder: true while Update
-	 * Doctor's own "Run Update Test" button is driving the updater.
+	 * Doctor's own "Manual Update Test" button is driving the updater, so the run is
+	 * tagged [manual] rather than mistaken for a real scheduled run.
 	 *
 	 * @var bool
 	 */
 	public static $manual_run = false;
 
-	/**
-	 * True while the "Run Unattended Test" button is driving the updater — a web
-	 * request that mimics a cron run (wp_doing_cron filtered true), but is still a
-	 * web request, so it is tagged [emulated], never [scheduled].
-	 *
-	 * @var bool
-	 */
-	public static $emulated_run = false;
-
 	public function register() {
 		add_action( 'admin_post_' . self::ACTION, array( $this, 'handle' ) );
-		add_action( 'admin_post_' . self::EMULATE_ACTION, array( $this, 'handle_emulate' ) );
 		add_action( 'admin_post_' . self::CLEAR_LOCK_ACTION, array( $this, 'handle_clear_lock' ) );
 	}
 
@@ -101,20 +89,7 @@ class Update_Doctor_Update_Trigger {
 			wp_die( esc_html__( 'You do not have permission to run updates.', 'update-doctor' ), 403 );
 		}
 		check_admin_referer( self::ACTION, self::NONCE );
-		$this->finish_run( $this->capture_run( 'manual' ) );
-	}
-
-	public function handle_emulate() {
-		if ( ! current_user_can( 'update_plugins' ) ) {
-			wp_die( esc_html__( 'You do not have permission to run updates.', 'update-doctor' ), 403 );
-		}
-		check_admin_referer( self::EMULATE_ACTION, self::EMULATE_NONCE );
-		// Get as close to an unattended cron run as a web request can: make
-		// wp_doing_cron() report true for the duration. This is still a web (PHP-FPM)
-		// request, so it cannot reproduce a true CLI/platform process context — which
-		// is why its activity is tagged [emulated], never [scheduled].
-		add_filter( 'wp_doing_cron', '__return_true' );
-		$this->finish_run( $this->capture_run( 'emulated' ) );
+		$this->finish_run( $this->capture_run() );
 	}
 
 	/**
@@ -138,24 +113,20 @@ class Update_Doctor_Update_Trigger {
 	/**
 	 * Run the auto-updater with full instrumentation and return the captured payload.
 	 *
-	 * @param string $kind 'manual' or 'emulated' — sets the run flag (which the
-	 *                     activity recorder reads to tag context) and the payload kind.
 	 * @return array
 	 */
-	private function capture_run( $kind ) {
-		// Defensive reset. $manual_run / $emulated_run are static, and PHP-FPM workers
-		// persist statics across requests. If an earlier run on this worker died before
-		// its end-of-run reset (an uncatchable fatal or timeout escapes the try/catch
-		// below), a stale flag would survive into this request and mis-tag the run —
-		// and, worse, mis-tag a real scheduled run that later reuses the worker as
-		// [manual]/[emulated], hiding genuine platform activity. Clear both here, and
-		// register a shutdown reset so a death mid-run cannot leak into the next request.
-		self::$manual_run   = false;
-		self::$emulated_run = false;
+	private function capture_run() {
+		// Defensive reset. $manual_run is static, and PHP-FPM workers persist statics
+		// across requests. If an earlier run on this worker died before its end-of-run
+		// reset (an uncatchable fatal or timeout escapes the try/catch below), a stale
+		// flag would survive into this request and mis-tag the run — and, worse, mis-tag
+		// a real scheduled run that later reuses the worker as [manual], hiding genuine
+		// platform activity. Clear it here, and register a shutdown reset so a death
+		// mid-run cannot leak into the next request.
+		self::$manual_run = false;
 		register_shutdown_function(
 			static function () {
-				self::$manual_run   = false;
-				self::$emulated_run = false;
+				self::$manual_run = false;
 			}
 		);
 
@@ -384,11 +355,7 @@ class Update_Doctor_Update_Trigger {
 			}
 		);
 
-		if ( 'emulated' === $kind ) {
-			self::$emulated_run = true;
-		} else {
-			self::$manual_run = true;
-		}
+		self::$manual_run = true;
 
 		// Snapshot pre-run state so the Last Run check can reason about the gap.
 		$pending_before = self::pending_summary();
@@ -411,14 +378,13 @@ class Update_Doctor_Update_Trigger {
 
 		$output = ob_get_clean();
 		restore_error_handler();
-		self::$manual_run   = false;
-		self::$emulated_run = false;
+		self::$manual_run = false;
 
 		$breadcrumbs['post_run_lock_held'] = (bool) get_option( 'auto_updater.lock' );
 
 		return array(
 			'time'           => time(),
-			'kind'           => $kind,
+			'kind'           => 'manual',
 			'output'         => $output,
 			'results'        => $results_buffer,
 			'errors'         => $captured_errors,

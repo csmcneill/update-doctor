@@ -64,6 +64,7 @@ class Update_Doctor_Admin_Page {
 		$overall          = $this->runner->overall_status( $results );
 		$report           = $this->formatter->format( $results );
 		$last_run_payload = $this->trigger->last_run_payload();
+		$lock_state       = Update_Doctor_Options_Check::detect_stuck_lock();
 		?>
 		<div class="wrap update-doctor-wrap">
 			<h1><?php esc_html_e( 'Update Doctor', 'update-doctor' ); ?></h1>
@@ -79,15 +80,7 @@ class Update_Doctor_Admin_Page {
 					<input type="hidden" name="action" value="<?php echo esc_attr( Update_Doctor_Update_Trigger::ACTION ); ?>" />
 					<?php wp_nonce_field( Update_Doctor_Update_Trigger::ACTION, Update_Doctor_Update_Trigger::NONCE ); ?>
 					<button type="submit" class="button button-primary">
-						<?php esc_html_e( 'Run Update Test', 'update-doctor' ); ?>
-					</button>
-				</form>
-
-				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline">
-					<input type="hidden" name="action" value="<?php echo esc_attr( Update_Doctor_Update_Trigger::EMULATE_ACTION ); ?>" />
-					<?php wp_nonce_field( Update_Doctor_Update_Trigger::EMULATE_ACTION, Update_Doctor_Update_Trigger::EMULATE_NONCE ); ?>
-					<button type="submit" class="button">
-						<?php esc_html_e( 'Run Unattended Test', 'update-doctor' ); ?>
+						<?php esc_html_e( 'Manual Update Test', 'update-doctor' ); ?>
 					</button>
 				</form>
 
@@ -104,6 +97,7 @@ class Update_Doctor_Admin_Page {
 					<?php esc_html_e( 'Copy Markdown Report', 'update-doctor' ); ?>
 				</button>
 
+				<?php if ( $lock_state['stuck'] ) : ?>
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline" id="update-doctor-clear-lock-form">
 					<input type="hidden" name="action" value="<?php echo esc_attr( Update_Doctor_Update_Trigger::CLEAR_LOCK_ACTION ); ?>" />
 					<?php wp_nonce_field( Update_Doctor_Update_Trigger::CLEAR_LOCK_ACTION, Update_Doctor_Update_Trigger::CLEAR_LOCK_NONCE ); ?>
@@ -111,14 +105,19 @@ class Update_Doctor_Admin_Page {
 						<?php esc_html_e( 'Clear Stuck Update Lock', 'update-doctor' ); ?>
 					</button>
 				</form>
+				<?php endif; ?>
 			</div>
 
 			<p class="update-doctor-actions-help description">
-				<?php esc_html_e( '"Run Update Test" runs WordPress\'s auto-updater in this web request. "Run Unattended Test" does the same but mimics a cron run (wp_doing_cron forced true) — still a web request, so it cannot fully reproduce a real scheduled run. The truest test is "Run via WP-CLI", which runs the updater in a separate command-line process, the way most hosts schedule it. The Auto-Update Activity Log below records whichever path you use, plus the host\'s own scheduled runs. "Clear Stuck Update Lock" deletes the auto_updater.lock option — only needed when the Options section reports a stuck lock.', 'update-doctor' ); ?>
+				<?php esc_html_e( '"Manual Update Test" runs WordPress\'s auto-updater in this web request and captures the result — a fast check, but a web request is not how a host schedules unattended updates. The truest test is "Run via WP-CLI", which runs the updater in a separate command-line process, the way most hosts run it. The Auto-Update Activity Log below records whichever path you use, and — most importantly — the host\'s own scheduled runs, tagged [scheduled].', 'update-doctor' ); ?>
 			</p>
 
-			<?php $this->render_clear_lock_modal(); ?>
-			<?php $this->render_wpcli_modal(); ?>
+			<?php
+			if ( $lock_state['stuck'] ) {
+				$this->render_clear_lock_modal();
+			}
+			$this->render_wpcli_modal();
+			?>
 
 			<?php if ( ! empty( $_GET['doctor_lock'] ) ) : ?>
 				<?php $this->render_lock_cleared(); ?>
@@ -209,7 +208,7 @@ class Update_Doctor_Admin_Page {
 		?>
 		<div class="<?php echo esc_attr( $class ); ?> update-doctor-lock-cleared">
 			<?php if ( ! empty( $payload['cleared'] ) ) : ?>
-				<p><strong><?php esc_html_e( 'Update lock cleared.', 'update-doctor' ); ?></strong> <?php esc_html_e( 'The auto_updater.lock row was removed from the database and the cache. Run the live update test again to confirm updates now apply.', 'update-doctor' ); ?></p>
+				<p><strong><?php esc_html_e( 'Update lock cleared.', 'update-doctor' ); ?></strong> <?php esc_html_e( 'The auto_updater.lock row was removed from the database and the cache. Run the Manual Update Test again to confirm updates now apply.', 'update-doctor' ); ?></p>
 			<?php else : ?>
 				<p><strong><?php esc_html_e( 'Could not confirm the lock was cleared.', 'update-doctor' ); ?></strong> <?php esc_html_e( 'A lock row still appears in the database after the delete attempt. This may indicate a database permissions issue.', 'update-doctor' ); ?></p>
 			<?php endif; ?>
@@ -240,13 +239,13 @@ class Update_Doctor_Admin_Page {
 		?>
 		<div class="notice notice-info update-doctor-live-test-banner">
 			<p>
-				<strong><?php esc_html_e( 'For the most complete diagnosis: run a live update test.', 'update-doctor' ); ?></strong>
+				<strong><?php esc_html_e( 'For the most complete diagnosis: run a manual update test.', 'update-doctor' ); ?></strong>
 				<?php
 				printf(
 					/* translators: %d: number of pending updates */
 					esc_html( _n(
-						'%d update is pending on this site, and Update Doctor has no record of a recent live update attempt. Click "Run Live Update Test" above to invoke WordPress\'s update process and capture exactly what happens — output, errors, and result for each item.',
-						'%d updates are pending on this site, and Update Doctor has no record of a recent live update attempt. Click "Run Live Update Test" above to invoke WordPress\'s update process and capture exactly what happens — output, errors, and result for each item.',
+						'%d update is pending on this site, and Update Doctor has no record of a recent manual update attempt. Click "Manual Update Test" above to invoke WordPress\'s update process and capture exactly what happens — output, errors, and result for each item.',
+						'%d updates are pending on this site, and Update Doctor has no record of a recent manual update attempt. Click "Manual Update Test" above to invoke WordPress\'s update process and capture exactly what happens — output, errors, and result for each item.',
 						$pending,
 						'update-doctor'
 					) ),
