@@ -4,7 +4,7 @@ Tags: updates, automatic updates, diagnostics, troubleshooting, maintenance
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.2.7
+Stable tag: 1.2.8
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,9 @@ Email notifications add a side-effect that some site owners may not want (for ex
 WordPress core has sent auto-update result emails since 5.5. Update Doctor's email is additive: it covers silent skips (which core does not email about) and gives you a uniform "open the diagnostic page" call to action. You may receive both emails if you enable Update Doctor's notifications.
 
 == Changelog ==
+
+= 1.2.8 =
+* Fix: running the diagnostic while a real automatic update is in progress no longer reports false failures. The create_lock() probe and the Last Update Attempt check now cross-reference the lock state: if the held lock is fresh and unmasked (an update genuinely running right now), create_lock() returning false and a manual test standing down are reported as INFO — "an update is currently in progress" — instead of FAIL. A stale or cache-masked lock still reports as a real stuck-lock failure. The lock is doing its job; the tool no longer cries wolf at the updater's own success.
 
 = 1.2.7 =
 * Fix: the activity log recorded single-theme scheduled upgrades as "theme: (unknown)". The recorder read the bulk 'themes' key from upgrader_process_complete but not the singular 'theme' key that a single-theme auto-update sets (the plugin side already handled both). Theme names now record correctly.

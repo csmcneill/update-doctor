@@ -255,9 +255,27 @@ class Update_Doctor_Options_Check extends Update_Doctor_Check {
 		}
 
 		if ( ! $acquired ) {
+			$lock_state = self::detect_stuck_lock();
+
+			// A fresh, unmasked lock held in both the database and cache means an
+			// automatic update is in progress right now — create_lock() is *meant* to
+			// return false in that case, to stop a second overlapping run. That is
+			// normal contention, not a defect, so report it as INFO rather than crying
+			// wolf at the updater's own success.
+			if ( ! $lock_state['stuck'] && ( $lock_state['db_has'] || $lock_state['cache_has'] ) ) {
+				return Update_Doctor_Diagnostic::info(
+					__( 'create_lock() probe: an update is currently in progress', 'update-doctor' ),
+					sprintf(
+						__( "WP_Upgrader::create_lock('auto_updater') returned false because a fresh lock is held (age: %s) — an automatic update is running right now, and the lock is doing its job of preventing a second, overlapping run. This is normal contention, not a stuck lock. Re-run this diagnostic when no update is in progress to test lock acquisition cleanly.", 'update-doctor' ),
+						$lock_state['lock_ts'] ? human_time_diff( (int) $lock_state['lock_ts'], time() ) : __( 'unknown', 'update-doctor' )
+					),
+					$details
+				);
+			}
+
 			return Update_Doctor_Diagnostic::fail(
 				__( 'create_lock() probe: the updater cannot acquire its lock', 'update-doctor' ),
-				__( "Update Doctor called WP_Upgrader::create_lock('auto_updater') directly and it returned false — the same call that gates the per-item loop in WP_Automatic_Updater::run(). This reproduces the stall in isolation, so it is not a one-off timing collision. The details below show why: if the raw INSERT IGNORE write test errored, something is rejecting the lock write (a query filter from a security/host plugin, or a database write restriction). If the write test is ok yet create_lock still fails, a lock row is present at the instant of the call even though get_option reports none — inspect the cache values and SQL error above.", 'update-doctor' ),
+				__( "Update Doctor called WP_Upgrader::create_lock('auto_updater') directly and it returned false — the same call that gates the per-item loop in WP_Automatic_Updater::run(). The details below show why: if the raw INSERT IGNORE write test errored, something is rejecting the lock write (a query filter from a security/host plugin, or a database write restriction). If the write test is ok yet create_lock still fails, a lock row is present at the instant of the call even though get_option reports none — inspect the cache values and SQL error above.", 'update-doctor' ),
 				$details
 			);
 		}

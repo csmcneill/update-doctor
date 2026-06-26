@@ -214,9 +214,24 @@ class Update_Doctor_Last_Run_Check extends Update_Doctor_Check {
 
 			// Case: lock was already held when we started.
 			if ( true === $pre_lock ) {
-				return Update_Doctor_Diagnostic::fail(
-					__( 'Updater exited because the auto_updater.lock was already held', 'update-doctor' ),
-					__( 'The auto_updater.lock option was set in the database immediately before this trigger called wp_maybe_auto_update(). WP_Upgrader::create_lock() would have returned false, causing run() to exit before reaching the iteration loop. The lock may be stale (held by a previous run that crashed before releasing) — if it persists for more than an hour, manually delete the auto_updater.lock option from wp_options.', 'update-doctor' ),
+				$lock_state = Update_Doctor_Options_Check::detect_stuck_lock();
+
+				// A stale or cache-masked lock is the real failure: run() bailed at
+				// create_lock() and will keep bailing until the lock is cleared.
+				if ( $lock_state['stuck'] ) {
+					return Update_Doctor_Diagnostic::fail(
+						__( 'Updater exited because a stuck auto_updater.lock was held', 'update-doctor' ),
+						__( 'The auto_updater.lock option was set when this trigger called wp_maybe_auto_update(), so WP_Upgrader::create_lock() returned false and run() exited before the iteration loop. The Options and Transients section reports this lock as stale or cache-masked — a stuck lock that will keep blocking every run. Use the "Clear Stuck Update Lock" button at the top of the page to remove it, then run the test again.', 'update-doctor' ),
+						$details
+					);
+				}
+
+				// Otherwise the lock was fresh and unmasked — a real automatic update
+				// was in progress when the test ran, so it correctly stood down. That is
+				// the lock doing its job, not a defect.
+				return Update_Doctor_Diagnostic::info(
+					__( 'Test deferred — an update was already in progress', 'update-doctor' ),
+					__( 'The auto_updater.lock was held when this test ran, so WP_Upgrader::create_lock() returned false and the test stood down before the iteration loop — exactly as designed, to keep two updaters from running at once. A real automatic update was in progress at that moment, which is good news: the updater is running. This is not a stuck lock. Re-run the test when no update is in progress to exercise the full update path.', 'update-doctor' ),
 					$details
 				);
 			}
