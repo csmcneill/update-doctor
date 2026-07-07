@@ -4,7 +4,7 @@ Tags: updates, automatic updates, diagnostics, troubleshooting, maintenance
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.2.8
+Stable tag: 1.2.9
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,9 @@ Email notifications add a side-effect that some site owners may not want (for ex
 WordPress core has sent auto-update result emails since 5.5. Update Doctor's email is additive: it covers silent skips (which core does not email about) and gives you a uniform "open the diagnostic page" call to action. You may receive both emails if you enable Update Doctor's notifications.
 
 == Changelog ==
+
+= 1.2.9 =
+* Fix: the email failure monitor no longer sends recurring false alerts for license-gated plugins. A premium plugin (WooCommerce.com, Freemius, EDD) with a pending update but no download package — because its subscription has lapsed — can never auto-update, so it was being treated as a "silent skip" and triggering an "automatic update issue detected" email every 24 hours, indefinitely. The monitor now only tracks and alerts on items that actually have a downloadable package: the expected-update snapshot skips no-package plugins and themes, and the silent-skip check re-verifies a pending, downloadable package still exists before alerting (which also flushes license-gated entries recorded by earlier versions, so the false emails stop on the next scheduled run). Genuine silent skips — an updatable item that had a package but never applied — still alert as before.
 
 = 1.2.8 =
 * Fix: running the diagnostic while a real automatic update is in progress no longer reports false failures. The create_lock() probe and the Last Update Attempt check now cross-reference the lock state: if the held lock is fresh and unmasked (an update genuinely running right now), create_lock() returning false and a manual test standing down are reported as INFO — "an update is currently in progress" — instead of FAIL. A stale or cache-masked lock still reports as a real stuck-lock failure. The lock is doing its job; the tool no longer cries wolf at the updater's own success.

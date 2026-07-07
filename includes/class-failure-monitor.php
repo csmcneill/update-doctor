@@ -48,7 +48,12 @@ class Update_Doctor_Failure_Monitor {
 
 		if ( is_object( $value ) && isset( $value->response ) && is_array( $value->response ) ) {
 			foreach ( $value->response as $file => $info ) {
-				if ( in_array( $file, $auto_plugins, true ) ) {
+				// Only track plugins that can actually auto-update. A response entry with
+				// no package download URL is license-gated (a WooCommerce.com, Freemius,
+				// or EDD plugin without an active subscription) — WordPress can never
+				// auto-update it, so it is not a "silent skip" and must not be expected,
+				// or it would trip a false failure alert on every run, forever.
+				if ( in_array( $file, $auto_plugins, true ) && ! empty( $info->package ) ) {
 					$key = 'plugin:' . $file;
 					if ( ! isset( $expected[ $key ] ) ) {
 						$expected[ $key ] = array(
@@ -75,7 +80,10 @@ class Update_Doctor_Failure_Monitor {
 
 		if ( is_object( $value ) && isset( $value->response ) && is_array( $value->response ) ) {
 			foreach ( $value->response as $stylesheet => $info ) {
-				if ( in_array( $stylesheet, $auto_themes, true ) ) {
+				// Same license-gate guard as plugins: a theme with no package URL cannot
+				// auto-update, so it must not be tracked as an expected update. Theme
+				// response entries are arrays, so the package key is accessed as such.
+				if ( in_array( $stylesheet, $auto_themes, true ) && ! empty( $info['package'] ) ) {
 					$key = 'theme:' . $stylesheet;
 					if ( ! isset( $expected[ $key ] ) ) {
 						$expected[ $key ] = array(
@@ -143,7 +151,15 @@ class Update_Doctor_Failure_Monitor {
 		$silent_skips = array();
 		foreach ( $expected as $key => $entry ) {
 			if ( ( $now - (int) $entry['observed_at'] ) > $grace ) {
-				$silent_skips[] = $entry;
+				// Only a genuine silent skip if the item is STILL pending with a
+				// downloadable package. An item that has since updated has dropped out of
+				// the transient; a license-gated item never had a package to download.
+				// Neither is a failure, so drop it without alerting. This recheck also
+				// flushes license-gated entries recorded by versions before the snapshot
+				// guard existed, so upgrading stops the false emails immediately.
+				if ( $this->is_still_updatable( $entry ) ) {
+					$silent_skips[] = $entry;
+				}
 				unset( $expected[ $key ] );
 			}
 		}
@@ -198,6 +214,32 @@ class Update_Doctor_Failure_Monitor {
 			}
 		}
 		return $failures;
+	}
+
+	/**
+	 * Whether an expected item still has a pending, downloadable update right now.
+	 * Distinguishes a genuine silent skip (updatable but not applied) from a
+	 * license-gated item (no package) or one that has already updated (gone from the
+	 * transient). Only the first warrants an alert.
+	 *
+	 * @param array $entry
+	 * @return bool
+	 */
+	private function is_still_updatable( array $entry ) {
+		$slug = isset( $entry['slug'] ) ? $entry['slug'] : '';
+		$type = isset( $entry['type'] ) ? $entry['type'] : '';
+		if ( '' === $slug ) {
+			return false;
+		}
+		if ( 'plugin' === $type ) {
+			$t = get_site_transient( 'update_plugins' );
+			return is_object( $t ) && isset( $t->response[ $slug ] ) && ! empty( $t->response[ $slug ]->package );
+		}
+		if ( 'theme' === $type ) {
+			$t = get_site_transient( 'update_themes' );
+			return is_object( $t ) && isset( $t->response[ $slug ] ) && ! empty( $t->response[ $slug ]['package'] );
+		}
+		return false;
 	}
 
 	private function maybe_notify() {
