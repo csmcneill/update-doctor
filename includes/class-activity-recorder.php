@@ -96,7 +96,11 @@ class Update_Doctor_Activity_Recorder {
 				}
 				foreach ( $entries as $entry ) {
 					$attempted++;
-					if ( isset( $entry->result ) && ( false === $entry->result || is_wp_error( $entry->result ) ) ) {
+					// Success is exactly true. false and WP_Error are explicit failures,
+					// and a failed DOWNLOAD leaves null (the upgrader returns before a
+					// result is set) — counting only false/WP_Error made batches full of
+					// download failures report "0 failed".
+					if ( ! isset( $entry->result ) || true !== $entry->result ) {
 						$failed++;
 					}
 				}
@@ -125,8 +129,38 @@ class Update_Doctor_Activity_Recorder {
 		if ( ! empty( $hook_extra['theme'] ) ) {
 			$items[] = $hook_extra['theme'];
 		}
-		$type = isset( $hook_extra['type'] ) ? $hook_extra['type'] : 'item';
-		$this->record( 'upgraded', $type . ': ' . ( $items ? implode( ', ', $items ) : '(unknown)' ) );
+		$type   = isset( $hook_extra['type'] ) ? $hook_extra['type'] : 'item';
+		$detail = $type . ': ' . ( $items ? implode( ', ', $items ) : '(unknown)' );
+
+		// Bulk upgrades fire this hook ONCE with every requested item, regardless of
+		// each item's outcome — recording that as "upgraded" claimed success for items
+		// that failed. Record it as its own event type with no success claim.
+		if ( ! empty( $hook_extra['bulk'] ) ) {
+			$this->record( 'bulk_upgrade_process', $detail . ' (per-item results not reported on this hook)' );
+			return;
+		}
+
+		// Single upgrades fire this hook even when the install FAILED (only a failed
+		// download skips it), so check the upgrader's actual result before claiming
+		// success: install_package() leaves a result array on success, a WP_Error on
+		// failure.
+		$ok = isset( $upgrader->result ) && ! is_wp_error( $upgrader->result ) && ! empty( $upgrader->result );
+
+		// For a single plugin, also record the version now on disk. If an "upgraded"
+		// entry shows the OLD version still on disk (or later reports do), the update
+		// did not stick — an install failure or a post-update rollback — which is
+		// otherwise invisible in this log.
+		if ( $ok && 'plugin' === $type && 1 === count( $items ) && function_exists( 'get_plugin_data' ) ) {
+			$file = WP_PLUGIN_DIR . '/' . $items[0];
+			if ( file_exists( $file ) ) {
+				$data = get_plugin_data( $file, false, false );
+				if ( ! empty( $data['Version'] ) ) {
+					$detail .= ' (on disk now: ' . $data['Version'] . ')';
+				}
+			}
+		}
+
+		$this->record( $ok ? 'upgraded' : 'upgrade_failed', $detail );
 	}
 
 	public function on_deleted_option( $option ) {

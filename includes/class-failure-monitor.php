@@ -15,6 +15,7 @@ class Update_Doctor_Failure_Monitor {
 
 	const NOTIFY_LOCK_TRANSIENT = 'update_doctor_notify_lock';
 	const EXPECTED_OPTION       = 'update_doctor_expected_updates';
+	const ALERT_HISTORY_OPTION  = 'update_doctor_alert_history';
 	const NOTIFY_LOCK_TTL       = DAY_IN_SECONDS;
 
 	/**
@@ -48,12 +49,15 @@ class Update_Doctor_Failure_Monitor {
 
 		if ( is_object( $value ) && isset( $value->response ) && is_array( $value->response ) ) {
 			foreach ( $value->response as $file => $info ) {
-				// Only track plugins that can actually auto-update. A response entry with
-				// no package download URL is license-gated (a WooCommerce.com, Freemius,
-				// or EDD plugin without an active subscription) — WordPress can never
-				// auto-update it, so it is not a "silent skip" and must not be expected,
-				// or it would trip a false failure alert on every run, forever.
-				if ( in_array( $file, $auto_plugins, true ) && ! empty( $info->package ) ) {
+				// Only track plugins that can actually auto-update. A response entry
+				// without a downloadable package URL is license-gated (a WooCommerce.com,
+				// Freemius, or EDD plugin without an active subscription) — WordPress can
+				// never auto-update it, so it is not a "silent skip" and must not be
+				// expected, or it would trip a false failure alert on every run, forever.
+				// The URL-shape test (not just non-empty) matters: some marketplaces
+				// inject non-empty MARKER strings (e.g. "woocommerce-com-expired-…")
+				// that equally cannot download.
+				if ( in_array( $file, $auto_plugins, true ) && self::is_downloadable_package( isset( $info->package ) ? $info->package : '' ) ) {
 					$key = 'plugin:' . $file;
 					if ( ! isset( $expected[ $key ] ) ) {
 						$expected[ $key ] = array(
@@ -80,10 +84,10 @@ class Update_Doctor_Failure_Monitor {
 
 		if ( is_object( $value ) && isset( $value->response ) && is_array( $value->response ) ) {
 			foreach ( $value->response as $stylesheet => $info ) {
-				// Same license-gate guard as plugins: a theme with no package URL cannot
-				// auto-update, so it must not be tracked as an expected update. Theme
-				// response entries are arrays, so the package key is accessed as such.
-				if ( in_array( $stylesheet, $auto_themes, true ) && ! empty( $info['package'] ) ) {
+				// Same license-gate guard as plugins: a theme without a downloadable
+				// package URL cannot auto-update, so it must not be tracked as an
+				// expected update. Theme response entries are arrays.
+				if ( in_array( $stylesheet, $auto_themes, true ) && self::is_downloadable_package( isset( $info['package'] ) ? $info['package'] : '' ) ) {
 					$key = 'theme:' . $stylesheet;
 					if ( ! isset( $expected[ $key ] ) ) {
 						$expected[ $key ] = array(
@@ -167,7 +171,7 @@ class Update_Doctor_Failure_Monitor {
 		$this->save_expected( $expected );
 
 		if ( $failures || $silent_skips ) {
-			$this->maybe_notify();
+			$this->maybe_notify( $failures, $silent_skips );
 		}
 	}
 
@@ -208,12 +212,63 @@ class Update_Doctor_Failure_Monitor {
 				continue;
 			}
 			foreach ( $entries as $entry ) {
-				if ( isset( $entry->result ) && ( false === $entry->result || is_wp_error( $entry->result ) ) ) {
-					$failures[] = $type;
+				// Core convention: result is true on success. false and WP_Error are
+				// explicit failures — and a failed DOWNLOAD leaves NULL (the upgrader
+				// returns before install_package ever sets a result), so anything
+				// other than exactly true must count as a failure, or download
+				// failures are invisible and batches report "0 failed" while items
+				// never apply.
+				$result = isset( $entry->result ) ? $entry->result : null;
+				if ( true === $result ) {
+					continue;
 				}
+
+				// Exclude license-gated plugin/theme failures: an item whose transient
+				// entry carries no downloadable package URL can never auto-update, so
+				// its failure is the expected state, not an alertable problem — the
+				// same rule the silent-skip path applies.
+				if ( in_array( $type, array( 'plugin', 'theme' ), true ) ) {
+					$package = '';
+					if ( isset( $entry->item ) ) {
+						if ( is_object( $entry->item ) && isset( $entry->item->package ) ) {
+							$package = (string) $entry->item->package;
+						} elseif ( is_array( $entry->item ) && isset( $entry->item['package'] ) ) {
+							$package = (string) $entry->item['package'];
+						}
+					}
+					if ( ! self::is_downloadable_package( $package ) ) {
+						continue;
+					}
+				}
+
+				$name = isset( $entry->name ) ? (string) $entry->name : $type;
+				if ( is_wp_error( $result ) ) {
+					$reason = $result->get_error_message();
+				} elseif ( null === $result ) {
+					$reason = __( 'no result recorded — the download or a pre-install step failed', 'update-doctor' );
+				} else {
+					$reason = __( 'failed', 'update-doctor' );
+				}
+
+				$failures[] = array(
+					'key'  => $type . ':' . $name,
+					'line' => sprintf( '[%1$s] %2$s — %3$s', $type, $name, $reason ),
+				);
 			}
 		}
 		return $failures;
+	}
+
+	/**
+	 * Whether a package value is something WordPress could actually download during
+	 * an unattended update. Empty values and marker strings (e.g. WooCommerce.com's
+	 * "woocommerce-com-expired-…") are license-gated placeholders, not packages.
+	 *
+	 * @param mixed $package
+	 * @return bool
+	 */
+	private static function is_downloadable_package( $package ) {
+		return is_string( $package ) && (bool) preg_match( '#^https?://#i', $package );
 	}
 
 	/**
@@ -233,22 +288,27 @@ class Update_Doctor_Failure_Monitor {
 		}
 		if ( 'plugin' === $type ) {
 			$t = get_site_transient( 'update_plugins' );
-			return is_object( $t ) && isset( $t->response[ $slug ] ) && ! empty( $t->response[ $slug ]->package );
+			return is_object( $t ) && isset( $t->response[ $slug ] ) && self::is_downloadable_package( isset( $t->response[ $slug ]->package ) ? $t->response[ $slug ]->package : '' );
 		}
 		if ( 'theme' === $type ) {
 			$t = get_site_transient( 'update_themes' );
-			return is_object( $t ) && isset( $t->response[ $slug ] ) && ! empty( $t->response[ $slug ]['package'] );
+			return is_object( $t ) && isset( $t->response[ $slug ] ) && self::is_downloadable_package( isset( $t->response[ $slug ]['package'] ) ? $t->response[ $slug ]['package'] : '' );
 		}
 		return false;
 	}
 
-	private function maybe_notify() {
+	/**
+	 * Send the alert email, naming the specific items involved. A persistently-stuck
+	 * item alerts at most once per week (per-item memory) instead of every day
+	 * forever; genuinely new problems still alert immediately, subject to the
+	 * existing 24-hour global throttle.
+	 *
+	 * @param array $failures     Entries from extract_failures(): key + line.
+	 * @param array $silent_skips Expected-update entries that aged out while still
+	 *                            pending with a downloadable package.
+	 */
+	private function maybe_notify( array $failures, array $silent_skips ) {
 		if ( ! $this->settings->notifications_enabled() ) {
-			return;
-		}
-
-		// Hard 24-hour throttle.
-		if ( get_transient( self::NOTIFY_LOCK_TRANSIENT ) ) {
 			return;
 		}
 
@@ -257,16 +317,68 @@ class Update_Doctor_Failure_Monitor {
 			return;
 		}
 
+		$history = get_option( self::ALERT_HISTORY_OPTION, array() );
+		if ( ! is_array( $history ) ) {
+			$history = array();
+		}
+		$now   = time();
+		$lines = array();
+		$fresh = array();
+
+		foreach ( $failures as $f ) {
+			$key     = 'fail:' . $f['key'];
+			$lines[] = sprintf( __( 'Failed: %s', 'update-doctor' ), $f['line'] );
+			if ( empty( $history[ $key ] ) || ( $now - (int) $history[ $key ] ) > WEEK_IN_SECONDS ) {
+				$fresh[ $key ] = true;
+			}
+		}
+		foreach ( $silent_skips as $entry ) {
+			$key     = 'skip:' . $entry['type'] . ':' . $entry['slug'];
+			$lines[] = sprintf(
+				__( 'Stuck: [%1$s] %2$s — update to %3$s has a download package but has not applied (first seen %4$s ago)', 'update-doctor' ),
+				$entry['type'],
+				$entry['slug'],
+				! empty( $entry['version'] ) ? $entry['version'] : __( 'a newer version', 'update-doctor' ),
+				human_time_diff( (int) $entry['observed_at'], $now )
+			);
+			if ( empty( $history[ $key ] ) || ( $now - (int) $history[ $key ] ) > WEEK_IN_SECONDS ) {
+				$fresh[ $key ] = true;
+			}
+		}
+
+		// Everything in this alert was already reported within the past week —
+		// stay quiet rather than repeating the same news daily.
+		if ( empty( $fresh ) ) {
+			return;
+		}
+
+		// Hard 24-hour global throttle.
+		if ( get_transient( self::NOTIFY_LOCK_TRANSIENT ) ) {
+			return;
+		}
+
+		foreach ( array_keys( $fresh ) as $key ) {
+			$history[ $key ] = $now;
+		}
+		// Prune history entries older than 60 days so the option cannot grow forever.
+		foreach ( $history as $key => $ts ) {
+			if ( ( $now - (int) $ts ) > 60 * DAY_IN_SECONDS ) {
+				unset( $history[ $key ] );
+			}
+		}
+		update_option( self::ALERT_HISTORY_OPTION, $history, false );
+
 		$site_name = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
 		$site_url  = home_url();
 
 		$subject = sprintf( '[%s] Automatic update issue detected', $site_name );
 		$body    = sprintf(
-			"An automatic update issue was detected on %s.\n\nVisit Tools → Update Doctor for diagnostics.\n\n— Update Doctor",
-			$site_url
+			"An automatic update issue was detected on %s.\n\n%s\n\nNotes: items whose publisher provides no download package (for example, premium plugins with a lapsed subscription) are excluded from these alerts, and each item above alerts at most once per week.\n\nVisit Tools → Update Doctor for full diagnostics.\n\n— Update Doctor",
+			$site_url,
+			implode( "\n", $lines )
 		);
 
-		set_transient( self::NOTIFY_LOCK_TRANSIENT, time(), self::NOTIFY_LOCK_TTL );
+		set_transient( self::NOTIFY_LOCK_TRANSIENT, $now, self::NOTIFY_LOCK_TTL );
 
 		wp_mail( $recipient, $subject, $body );
 	}

@@ -4,7 +4,7 @@ Tags: updates, automatic updates, diagnostics, troubleshooting, maintenance
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.2.9
+Stable tag: 1.2.10
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,13 @@ Email notifications add a side-effect that some site owners may not want (for ex
 WordPress core has sent auto-update result emails since 5.5. Update Doctor's email is additive: it covers silent skips (which core does not email about) and gives you a uniform "open the diagnostic page" call to action. You may receive both emails if you enable Update Doctor's notifications.
 
 == Changelog ==
+
+= 1.2.10 =
+* Fix: download failures were invisible. WordPress records NULL (not false or WP_Error) as an item's result when its download fails, so the failure monitor and the activity log's batch counts treated failed downloads as successes — batches full of failures reported "0 failed". Anything other than exactly true now counts as a failure (core's own convention).
+* Fix: the license-gate test now requires an actual http(s) package URL instead of merely a non-empty value, and it is applied on the failure path as well as the silent-skip path. This excludes marketplace MARKER strings (e.g. WooCommerce.com's "woocommerce-com-expired-…") that are non-empty but can never download, closing a loophole where license-gated items could re-enter alerting when a marketplace changes how it injects expired updates into the transient.
+* New: alert emails now name the items — each failure with WordPress's reason, each stuck update with the pending version and how long it has waited — instead of a generic "an issue was detected".
+* New: per-item alert memory. A persistently-stuck item alerts at most once per week instead of every 24 hours forever; new problems still alert immediately (the 24-hour global throttle remains).
+* Fix: the activity log no longer over-claims "upgraded". Bulk completions — which fire once listing every requested item regardless of outcome — are now recorded as bulk_upgrade_process with no success claim, and single completions check the upgrader's actual result, recording upgrade_failed when the install did not succeed. Successful single plugin upgrades also record the version now on disk, exposing updates that do not stick (install failures or post-update rollbacks).
 
 = 1.2.9 =
 * Fix: the email failure monitor no longer sends recurring false alerts for license-gated plugins. A premium plugin (WooCommerce.com, Freemius, EDD) with a pending update but no download package — because its subscription has lapsed — can never auto-update, so it was being treated as a "silent skip" and triggering an "automatic update issue detected" email every 24 hours, indefinitely. The monitor now only tracks and alerts on items that actually have a downloadable package: the expected-update snapshot skips no-package plugins and themes, and the silent-skip check re-verifies a pending, downloadable package still exists before alerting (which also flushes license-gated entries recorded by earlier versions, so the false emails stop on the next scheduled run). Genuine silent skips — an updatable item that had a package but never applied — still alert as before.
