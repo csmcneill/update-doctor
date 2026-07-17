@@ -4,7 +4,7 @@ Tags: updates, automatic updates, diagnostics, troubleshooting, maintenance
 Requires at least: 5.5
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.2.10
+Stable tag: 1.2.11
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -64,6 +64,9 @@ Email notifications add a side-effect that some site owners may not want (for ex
 WordPress core has sent auto-update result emails since 5.5. Update Doctor's email is additive: it covers silent skips (which core does not email about) and gives you a uniform "open the diagnostic page" call to action. You may receive both emails if you enable Update Doctor's notifications.
 
 == Changelog ==
+
+= 1.2.11 =
+* New: the Per-Plugin and Per-Theme check now classifies the package field for every item WordPress has cleared to update, making the update transient's package state visible without WP-CLI access. Real download URLs show their hostname only (signed URLs can embed auth tokens, so full URLs never appear in a shareable report); WooCommerce.com's woocommerce-com-expired-* renewal markers are named explicitly instead of reading as "would auto-update"; any other non-downloadable value is quoted (truncated) and flagged. The license-gated summary now counts marker and malformed packages alongside empty ones.
 
 = 1.2.10 =
 * Fix: download failures were invisible. WordPress records NULL (not false or WP_Error) as an item's result when its download fails, so the failure monitor and the activity log's batch counts treated failed downloads as successes — batches full of failures reported "0 failed". Anything other than exactly true now counts as a failure (core's own convention).

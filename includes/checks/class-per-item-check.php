@@ -79,7 +79,9 @@ class Update_Doctor_Per_Item_Check extends Update_Doctor_Check {
 			$would_update = $updater->should_update( 'plugin', $item, WP_PLUGIN_DIR );
 			$reason       = $this->reason_plugin( $has_update, $opted_in, $would_update, $package, $managed );
 
-			if ( $has_update && $would_update && '' === $package && ! $managed ) {
+			// License-gated covers every cleared item whose package cannot download:
+			// empty, an expired-subscription marker, or any other non-URL value.
+			if ( $has_update && $would_update && ! preg_match( '#^https?://#i', $package ) && ! $managed ) {
 				$license_gated_count++;
 			}
 			if ( $managed ) {
@@ -119,8 +121,8 @@ class Update_Doctor_Per_Item_Check extends Update_Doctor_Check {
 				__( 'License-gated plugin updates detected', 'update-doctor' ),
 				sprintf(
 					_n(
-						'%d plugin has a pending update with no package download URL. This typically means a premium plugin distributed via a marketplace like WooCommerce.com Update Manager, Freemius, or EDD Software Licensing, where an active subscription or license is required to receive updates. Confirm subscription status with each plugin publisher.',
-						'%d plugins have pending updates with no package download URL. This typically means premium plugins distributed via marketplaces like WooCommerce.com Update Manager, Freemius, or EDD Software Licensing, where an active subscription or license is required to receive updates. Confirm subscription status with each plugin publisher.',
+						'%d plugin has a pending update with no downloadable package URL (empty, an expired-subscription marker, or another non-URL value). This typically means a premium plugin distributed via a marketplace like WooCommerce.com Update Manager, Freemius, or EDD Software Licensing, where an active subscription or license is required to receive updates. The per-item lines below name each package state. Confirm subscription status with each plugin publisher.',
+						'%d plugins have pending updates with no downloadable package URL (empty, an expired-subscription marker, or another non-URL value). This typically means premium plugins distributed via marketplaces like WooCommerce.com Update Manager, Freemius, or EDD Software Licensing, where an active subscription or license is required to receive updates. The per-item lines below name each package state. Confirm subscription status with each plugin publisher.',
 						$license_gated_count,
 						'update-doctor'
 					),
@@ -186,15 +188,45 @@ class Update_Doctor_Per_Item_Check extends Update_Doctor_Check {
 			return __( 'no update available', 'update-doctor' );
 		}
 		if ( $would_update ) {
-			if ( '' === $package ) {
-				return __( 'cleared by WordPress, but no package download URL — typically a premium plugin awaiting an active license or subscription', 'update-doctor' );
-			}
-			return __( 'would auto-update on next cron run', 'update-doctor' );
+			return $this->cleared_reason( $package, __( 'plugin', 'update-doctor' ) );
 		}
 		if ( ! $opted_in ) {
 			return __( 'will NOT auto-update — not opted in (Plugins/Themes screen → enable auto-updates)', 'update-doctor' );
 		}
 		return __( 'will NOT auto-update — a filter callback returned false (see Filters section)', 'update-doctor' );
+	}
+
+	/**
+	 * The reason line for an item WordPress has cleared to auto-update, refined by
+	 * what the package field actually holds — the field that decides whether the
+	 * download can succeed. Real URLs are reduced to their host so signed download
+	 * URLs (which can embed auth tokens) never appear in a shareable report.
+	 *
+	 * @param string $package The package value from the update transient.
+	 * @param string $noun    Translated 'plugin' or 'theme', for the license-gated copy.
+	 * @return string
+	 */
+	private function cleared_reason( $package, $noun ) {
+		if ( '' === $package ) {
+			/* translators: %s: "plugin" or "theme" */
+			return sprintf( __( 'cleared by WordPress, but no package download URL — typically a premium %s awaiting an active license or subscription', 'update-doctor' ), $noun );
+		}
+
+		if ( 0 === strpos( $package, 'woocommerce-com-expired-' ) ) {
+			return __( 'cleared by WordPress, but the package is WooCommerce.com\'s expired-subscription marker — core will block the download with a renewal notice instead of updating', 'update-doctor' );
+		}
+
+		if ( preg_match( '#^https?://#i', $package ) ) {
+			$host = wp_parse_url( $package, PHP_URL_HOST );
+			/* translators: %s: hostname of the package download URL */
+			return sprintf( __( 'would auto-update on next cron run (package: %s)', 'update-doctor' ), $host ? $host : 'url' );
+		}
+
+		return sprintf(
+			/* translators: %s: truncated non-URL package value */
+			__( 'cleared by WordPress, but the package value is not a downloadable URL ("%s") — the download will fail', 'update-doctor' ),
+			substr( $package, 0, 40 ) . ( strlen( $package ) > 40 ? '…' : '' )
+		);
 	}
 
 	/**
@@ -231,10 +263,7 @@ class Update_Doctor_Per_Item_Check extends Update_Doctor_Check {
 			return __( 'no update available', 'update-doctor' );
 		}
 		if ( $would_update ) {
-			if ( '' === $package ) {
-				return __( 'cleared by WordPress, but no package download URL — typically a premium theme awaiting an active license or subscription', 'update-doctor' );
-			}
-			return __( 'would auto-update on next cron run', 'update-doctor' );
+			return $this->cleared_reason( $package, __( 'theme', 'update-doctor' ) );
 		}
 		if ( ! $opted_in ) {
 			return __( 'will NOT auto-update — not opted in (Plugins/Themes screen → enable auto-updates)', 'update-doctor' );
